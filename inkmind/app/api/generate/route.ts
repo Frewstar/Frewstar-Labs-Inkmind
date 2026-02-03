@@ -24,12 +24,13 @@ interface GenerateRequest {
   placement: string;
   count?: number;
   isPaid?: boolean;
+  referenceImage?: string; // base64 (with or without data URL prefix)
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body: GenerateRequest = await req.json();
-    const { prompt, style, placement, count = 4, isPaid = false } = body;
+    const { prompt, style, placement, count = 4, isPaid = false, referenceImage } = body;
 
     if (!prompt || !style || !placement) {
       return NextResponse.json(
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const fullPrompt = buildTattooPrompt(prompt, style, placement);
+    const fullPrompt = buildTattooPrompt(prompt, style, placement, !!referenceImage);
 
     const modelLabel = isPaid ? `Paid tier (${PAID_MODEL_ID})` : `Free tier (${FREE_MODEL_ID})`;
     console.log(`[InkMind] Generating ${count} images using ${modelLabel}`);
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
 
     const images: string[] = [];
     for (let i = 0; i < count; i++) {
-      const imageData = await generateSingleImage(fullPrompt, { isPaid, token });
+      const imageData = await generateSingleImage(fullPrompt, { isPaid, token, referenceImage });
       if (imageData) {
         images.push(imageData);
       } else {
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-function buildTattooPrompt(userPrompt: string, style: string, placement: string): string {
+function buildTattooPrompt(userPrompt: string, style: string, placement: string, hasReferenceImage?: boolean): string {
   const styleMap: Record<string, string> = {
     "fine-line": "Fine-line blackwork",
     "geometric": "Geometric blackwork",
@@ -103,6 +104,10 @@ function buildTattooPrompt(userPrompt: string, style: string, placement: string)
   };
 
   const styleName = styleMap[style] || style;
+
+  const referenceInstruction = hasReferenceImage
+    ? "\nREFERENCE: A reference image is provided. Maintain its core subject matter but translate it into the chosen tattoo style."
+    : "";
 
   return `Create a professional tattoo design on a clean white background, ready to show a client.
 
@@ -117,6 +122,12 @@ ARTIST DIRECTION:
 - No skin texture, no background elements, just the design itself
 - Tattoo-ready quality — what the client would actually see as a design sketch
 
+SHADING REQUIREMENTS (STRICT):
+- Use professional whip-shading, soft gradients, and stippling
+- Avoid flat black areas
+- Ensure 3D depth and realistic light-to-shadow transitions
+${referenceInstruction}
+
 TECHNICAL REQUIREMENTS:
 - Crisp linework that would translate well to skin
 - Appropriate detail level for the specified placement
@@ -125,23 +136,43 @@ TECHNICAL REQUIREMENTS:
 - Isolated on white background, centered, no shadows or gradients on the background`;
 }
 
+/** Strip data URL prefix from base64 string if present; return raw base64 and mime type */
+function parseReferenceImage(ref: string): { data: string; mimeType: string } {
+  const dataUrlMatch = ref.match(/^data:([^;]+);base64,(.+)$/);
+  if (dataUrlMatch) {
+    return { data: dataUrlMatch[2], mimeType: dataUrlMatch[1] || "image/png" };
+  }
+  return { data: ref, mimeType: "image/png" };
+}
+
 async function generateSingleImage(
   prompt: string,
-  options: { isPaid?: boolean; token?: string } = {}
+  options: { isPaid?: boolean; token?: string; referenceImage?: string } = {}
 ): Promise<string | null> {
-  const { isPaid = false, token } = options;
+  const { isPaid = false, token, referenceImage } = options;
 
-  const requestBody = {
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: prompt }],
-      },
-    ],
+  const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+
+  if (referenceImage) {
+    const { data, mimeType } = parseReferenceImage(referenceImage);
+    parts.push({ inlineData: { data, mimeType } });
+  }
+  parts.push({ text: prompt });
+
+  const requestBody: Record<string, unknown> = {
+    contents: [{ role: "user", parts }],
     generationConfig: isPaid
       ? { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "1:1", imageSize: "2K" } }
       : { responseModalities: ["IMAGE"] },
   };
+
+  if (referenceImage) {
+    requestBody.systemInstruction = {
+      parts: [{
+        text: "If a reference image is provided, maintain its core subject matter but translate it into the chosen tattoo style.",
+      }],
+    };
+  }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

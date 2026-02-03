@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 const SYSTEM_PROMPT =
-  "You are a helpful assistant for InkMind, an AI tattoo design studio. Keep replies concise and on-topic.";
+  "You are a helpful assistant for Frewstar Labs Tattoo Design Studio. Keep replies concise and on-topic.";
 
 export const XAI_MODELS = [
   { id: "grok-4-latest", label: "Grok 4 (latest)" },

@@ -1,54 +1,71 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import ImageLightbox from "./ImageLightbox";
+import { getRandomTattooPhotos } from "@/lib/tattoo-photos";
+
 /**
- * InstagramPortfolio — Server Component
- * Displays a 3-column grid of placeholder portfolio images.
- * Uses plain img so it works without next.config images hostname config.
- * Gold border + 4px lift on hover per rules.md.
+ * InstagramPortfolio — Client Component
+ * Displays 6 random tattoo photos from the pool. Refreshes every 60 seconds.
+ * Click any image to enlarge in lightbox.
  */
-
-type PortfolioImage = {
-  id: string;
-  url: string;
-  permalink: string;
-};
-
-const STATIC_PORTFOLIO: PortfolioImage[] = [
-  { id: "1", url: "https://picsum.photos/seed/ink1/800/800", permalink: "#" },
-  { id: "2", url: "https://picsum.photos/seed/ink2/800/800", permalink: "#" },
-  { id: "3", url: "https://picsum.photos/seed/ink3/800/800", permalink: "#" },
-  { id: "4", url: "https://picsum.photos/seed/ink4/800/800", permalink: "#" },
-  { id: "5", url: "https://picsum.photos/seed/ink5/800/800", permalink: "#" },
-  { id: "6", url: "https://picsum.photos/seed/ink6/800/800", permalink: "#" },
-];
-
 export default function InstagramPortfolio() {
+  const [photos, setPhotos] = useState<string[]>(() => getRandomTattooPhotos(6));
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+
+  const refreshPhotos = () => {
+    setPhotos(getRandomTattooPhotos(6));
+  };
+
+  useEffect(() => {
+    const interval = setInterval(refreshPhotos, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <section>
       <div className="section-inner">
-        <h2
-          className="section-title"
-          style={{ fontFamily: "var(--font-head)", marginBottom: "56px" }}
-        >
-          Latest from the Studio
-        </h2>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1.5rem" }}>
+          <h2
+            className="section-title"
+            style={{ fontFamily: "var(--font-head)", marginBottom: 0 }}
+          >
+            Latest from the Studio
+          </h2>
+          <button
+            type="button"
+            onClick={refreshPhotos}
+            className="btn-outline"
+            style={{ padding: "0.5rem 1rem", fontSize: "0.75rem" }}
+          >
+            Show different photos
+          </button>
+        </div>
         <div className="instagram-grid">
-          {STATIC_PORTFOLIO.map((item) => (
-            <a
-              key={item.id}
-              href={item.permalink}
-              target="_blank"
-              rel="noopener noreferrer"
+          {photos.map((url, i) => (
+            <button
+              key={`${url}-${i}`}
+              type="button"
               className="instagram-card"
+              onClick={() => setLightboxImage(url)}
+              style={{ border: "none", padding: 0, background: "none", cursor: "pointer" }}
             >
               <img
-                src={item.url}
+                src={url}
                 alt="Portfolio tattoo design"
                 className="instagram-card-img"
               />
               <span className="instagram-card-hover" aria-hidden />
-            </a>
+            </button>
           ))}
         </div>
       </div>
+
+      <ImageLightbox
+        src={lightboxImage}
+        alt="Portfolio tattoo design"
+        onClose={() => setLightboxImage(null)}
+      />
     </section>
   );
 }

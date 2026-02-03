@@ -18,6 +18,7 @@ interface ConversationalWizardProps {
   onComplete: (finalPrompt: string, placement: string) => void;
   selectedStyle: string;
   isPaid?: boolean;
+  disclaimerAccepted?: boolean;
   /** Called when wizard state changes so parent can pre-fill manual mode on eject */
   onPromptChange?: (prompt: string, placement: string | null) => void;
 }
@@ -32,7 +33,8 @@ const MEANING_OPTIONS = [
 ];
 
 const PLACEMENT_OPTIONS = [
-  "Forearm", "Upper Arm", "Chest", "Back", "Thigh", "Shoulder", "Calf"
+  "Forearm", "Upper Arm", "Chest", "Back", "Thigh", "Shoulder", "Calf",
+  "General / Other",
 ];
 
 const SIZE_OPTIONS = [
@@ -114,7 +116,7 @@ function DiamondIcon() {
   );
 }
 
-export default function ConversationalWizard({ onComplete, selectedStyle, isPaid = false, onPromptChange }: ConversationalWizardProps) {
+export default function ConversationalWizard({ onComplete, selectedStyle, isPaid = false, disclaimerAccepted = false, onPromptChange }: ConversationalWizardProps) {
   const [currentStep, setCurrentStep] = useState<WizardStep>("meaning");
   const [state, setState] = useState<WizardState>({
     meaning: null,
@@ -136,7 +138,7 @@ export default function ConversationalWizard({ onComplete, selectedStyle, isPaid
     if (currentStep === "size") return state.size !== null;
     if (currentStep === "vibe") return state.vibe !== null;
     if (currentStep === "elements") return true; // optional
-    if (currentStep === "review") return true;
+    if (currentStep === "review") return disclaimerAccepted;
     return false;
   };
 

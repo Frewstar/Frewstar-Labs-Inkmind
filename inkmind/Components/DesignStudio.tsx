@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import BookingModal from "./BookingModal";
 import ConversationalWizard from "./ConversationalWizard";
+import ImageLightbox from "./ImageLightbox";
+import { getRandomTattooPhotos } from "@/lib/tattoo-photos";
 
 export type DesignStudioProps = {
   onOpenBooking?: () => void;
@@ -52,13 +54,6 @@ const STYLES = [
   { id: "minimalist", label: "Minimalist",  icon: "◇" },
 ];
 
-const PLACEHOLDER_IMAGES = [
-  "https://picsum.photos/seed/tattoo1/800/800",
-  "https://picsum.photos/seed/tattoo2/800/800",
-  "https://picsum.photos/seed/tattoo3/800/800",
-  "https://picsum.photos/seed/tattoo4/800/800",
-];
-
 const CARD_BG = [
   "radial-gradient(ellipse at 30% 70%, #1a1205 0%, #0e0e0e 60%)",
   "radial-gradient(ellipse at 70% 30%, #0f1a1a 0%, #0e0e0e 60%)",
@@ -68,6 +63,13 @@ const CARD_BG = [
 
 const PLACEMENT_OPTIONS = [
   "Forearm", "Upper Arm", "Chest", "Back", "Thigh", "Shoulder", "Calf",
+];
+
+const LOADING_STATUSES = [
+  "Analyzing Reference...",
+  "Drafting Linework...",
+  "Applying Whip-Shading...",
+  "Finalizing 2K Render...",
 ];
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
@@ -126,6 +128,12 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
   const [lastGenerationPrompt, setLastGenerationPrompt] = useState("");
   const [lastGenerationStyle, setLastGenerationStyle] = useState(selectedStyle);
   const [savedInSession, setSavedInSession] = useState<Set<number>>(new Set()); // which current gallery indices were saved this session
+  const [refImage, setRefImage] = useState<string | null>(null);
+  const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
+  const [loadingStatusIndex, setLoadingStatusIndex] = useState(0);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [placeholderImages, setPlaceholderImages] = useState<string[]>(() => getRandomTattooPhotos(6));
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const useExternalBooking = !!externalOpenBooking;
   const openBookingModal = useExternalBooking ? externalOpenBooking! : () => setBookingModalOpen(true);
@@ -138,11 +146,32 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
     saveDesignLibrary(designLibrary);
   }, [designLibrary]);
 
+  // Status stepper: cycle through loading statuses every 7 seconds
+  useEffect(() => {
+    if (!loading) {
+      setLoadingStatusIndex(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setLoadingStatusIndex((i) => (i + 1) % LOADING_STATUSES.length);
+    }, 7000);
+    return () => clearInterval(interval);
+  }, [loading]);
+
+  // Refresh placeholder images every 60 seconds when showing placeholders
+  useEffect(() => {
+    if (!showPlaceholders) return;
+    const interval = setInterval(() => {
+      setPlaceholderImages(getRandomTattooPhotos(6));
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [showPlaceholders]);
+
   // Download a design
   const handleDownload = (dataUrl: string, index: number) => {
     const link = document.createElement('a');
     link.href = dataUrl;
-    link.download = `inkmind-design-${index + 1}.png`;
+    link.download = `frewstar-design-${index + 1}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -172,6 +201,18 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
     setSelectedStyle(saved.style);
   }, []);
 
+  const handleRefImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") setRefImage(result);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
   // Wizard completion handler
   const handleWizardComplete = async (finalPrompt: string, placement: string) => {
     setLoading(true);
@@ -188,6 +229,7 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
           placement,
           count: designCount,
           isPaid,
+          ...(refImage && { referenceImage: refImage }),
         }),
       });
       const data = await res.json();
@@ -301,6 +343,53 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
           </p>
         </div>
 
+        {/* Reference Image Upload */}
+        <div style={{ marginTop: 24 }}>
+          <label style={{ marginBottom: 8, display: "block", fontSize: 14, fontWeight: 500 }}>
+            Reference Image
+          </label>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleRefImageChange}
+              style={{ display: "none" }}
+            />
+            <button
+              type="button"
+              className="btn-outline"
+              onClick={() => fileInputRef.current?.click()}
+              style={{ padding: "10px 18px", fontSize: 13 }}
+            >
+              Upload Reference (e.g., Pokémon, Logo)
+            </button>
+            {refImage && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <img
+                  src={refImage}
+                  alt="Reference"
+                  style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 8, border: "1px solid rgba(232,180,90,0.3)" }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setRefImage(null)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--grey)",
+                    fontSize: 12,
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Mode toggle: Guided (Wizard) vs Manual prompt */}
         <div style={{ marginTop: 24, marginBottom: 8, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
           <button
@@ -336,11 +425,38 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
           )}
         </div>
 
+        {/* Legal Disclaimer */}
+        {!loading && (
+          <div style={{ marginTop: 20 }}>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+                cursor: "pointer",
+                fontSize: 13,
+                color: "var(--grey)",
+                lineHeight: 1.5,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={disclaimerAccepted}
+                onChange={(e) => setDisclaimerAccepted(e.target.checked)}
+                style={{ marginTop: 4, width: 18, height: 18, accentColor: "var(--gold)" }}
+              />
+              <span>
+                I understand this AI design is a final concept. If I provide this to my artist, it will be tattooed as-is without further modifications.
+              </span>
+            </label>
+          </div>
+        )}
+
         <div style={{ marginTop: 24 }}>
           {loading ? (
             <div className="wizard-loading">
               <div className="wizard-spinner" />
-              <p>Generating {designCount} design{designCount > 1 ? 's' : ''}...</p>
+              <p>{LOADING_STATUSES[loadingStatusIndex]}</p>
             </div>
           ) : isManualMode ? (
             <div className="manual-prompt-container">
@@ -378,7 +494,7 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                 <button
                   type="button"
                   onClick={() => handleWizardComplete(manualPrompt.trim(), manualPlacement)}
-                  disabled={loading || !manualPrompt.trim()}
+                  disabled={loading || !manualPrompt.trim() || !disclaimerAccepted}
                   className="wizard-btn-next"
                   style={{ marginLeft: "auto" }}
                 >
@@ -391,6 +507,7 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
               onComplete={handleWizardComplete}
               selectedStyle={selectedStyle}
               isPaid={isPaid}
+              disclaimerAccepted={disclaimerAccepted}
               onPromptChange={(prompt, placement) => {
                 setLastWizardPrompt(prompt);
                 setLastWizardPlacement(placement);
@@ -418,15 +535,21 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
 
       {/* ── RIGHT: Gallery ── */}
       <div className="gallery-panel">
-        <div className="gallery-grid" style={{ 
-          gridTemplateColumns: designCount === 1 ? '1fr' : designCount === 2 ? 'repeat(2, 1fr)' : 'repeat(2, 1fr)'
+        <div className="gallery-grid" style={{
+          gridTemplateColumns: showPlaceholders
+            ? "repeat(3, 1fr)"
+            : designCount === 1 ? "1fr" : designCount === 2 ? "repeat(2, 1fr)" : "repeat(2, 1fr)",
         }}>
           {showPlaceholders
-            ? PLACEHOLDER_IMAGES.slice(0, designCount).map((imgUrl, i) => (
+            ? placeholderImages.map((imgUrl, i) => (
                 <div
-                  key={i}
+                  key={`${imgUrl}-${i}`}
                   className="gallery-card"
-                  style={{ background: CARD_BG[i] }}
+                  style={{ background: CARD_BG[i % CARD_BG.length] }}
+                  onClick={() => setLightboxImage(imgUrl)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === "Enter" && setLightboxImage(imgUrl)}
                 >
                   <img
                     src={imgUrl}
@@ -437,7 +560,10 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                     <button
                       type="button"
                       className="overlay-btn"
-                      onClick={openBookingModal}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openBookingModal();
+                      }}
                     >
                       <ArrowIcon /> Book This
                     </button>
@@ -449,6 +575,10 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                   key={i}
                   className="gallery-card"
                   style={{ background: CARD_BG[i % CARD_BG.length] }}
+                  onClick={() => setLightboxImage(dataUrl)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === "Enter" && setLightboxImage(dataUrl)}
                 >
                   <img
                     src={dataUrl}
@@ -460,7 +590,10 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                       <button
                         type="button"
                         className="action-btn"
-                        onClick={() => handleSaveToLibrary(i)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSaveToLibrary(i);
+                        }}
                         title={savedInSession.has(i) ? "Saved to library" : "Save to library"}
                       >
                         <HeartIcon filled={savedInSession.has(i)} />
@@ -468,7 +601,10 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                       <button
                         type="button"
                         className="action-btn"
-                        onClick={() => handleDownload(dataUrl, i)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDownload(dataUrl, i);
+                        }}
                         title="Download"
                       >
                         <DownloadIcon />
@@ -476,7 +612,10 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                       <button
                         type="button"
                         className="overlay-btn-main"
-                        onClick={openBookingModal}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openBookingModal();
+                        }}
                       >
                         <ArrowIcon /> Book This
                       </button>
@@ -495,7 +634,14 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
             </p>
             <div className="history-grid">
               {designLibrary.map((saved) => (
-                <div key={saved.id} className="history-card">
+                <div
+                  key={saved.id}
+                  className="history-card"
+                  onClick={() => setLightboxImage(saved.image)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === "Enter" && setLightboxImage(saved.image)}
+                >
                   <img
                     src={saved.image}
                     alt=""
@@ -509,7 +655,10 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                       type="button"
                       className="overlay-btn-main"
                       style={{ marginTop: 8, width: "100%", fontSize: 12, padding: "8px 12px" }}
-                      onClick={() => handleLoadIntoEditor(saved)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleLoadIntoEditor(saved);
+                      }}
                     >
                       Load into Editor
                     </button>
@@ -521,7 +670,7 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
         )}
 
         {/* Booking strip */}
-        <div className="booking-strip">
+        <div className="booking-strip" style={{ alignItems: "center" }}>
           <div className="booking-strip-text">
             <h2>Happy with a design?<br />Let&apos;s get it on skin.</h2>
             <p>
@@ -554,6 +703,12 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
       {!useExternalBooking && (
         <BookingModal open={bookingModalOpen} onClose={closeBookingModal} />
       )}
+
+      <ImageLightbox
+        src={lightboxImage}
+        alt="Tattoo design"
+        onClose={() => setLightboxImage(null)}
+      />
     </div>
   );
 }

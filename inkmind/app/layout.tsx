@@ -5,8 +5,9 @@ import "./globals.css";
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  minimumScale: 1,
+  maximumScale: 5,
+  userScalable: true,
   viewportFit: "cover",
   themeColor: "#0A0A0A",
 };
@@ -25,10 +26,10 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "InkMind — AI Tattoo Design Studio",
+  title: "Frewstar Labs Tattoo Design Studio",
   description:
     "Describe your tattoo. See it rendered in your artist's signature style. Book in one tap.",
-  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "InkMind" },
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Frewstar Labs" },
 };
 
 export default function RootLayout({

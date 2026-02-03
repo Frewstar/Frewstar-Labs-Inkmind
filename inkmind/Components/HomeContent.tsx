@@ -4,6 +4,7 @@ import { useState } from "react";
 import DesignStudio from "@/components/DesignStudio";
 import InstagramPortfolio from "@/components/InstagramPortfolio";
 import BookingModal from "@/components/BookingModal";
+import { LOGO_PATH, LOGO_ALT } from "@/lib/branding";
 
 export default function HomeContent() {
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
@@ -13,13 +14,13 @@ export default function HomeContent() {
       {/* ─── NAV ─── */}
       <nav>
         <a href="#" className="nav-logo">
-          Ink<span>Mind</span>
+          <img src={LOGO_PATH} alt={LOGO_ALT} className="nav-logo-img" />
         </a>
         <div className="nav-links">
           <a href="#how">How It Works</a>
           <a href="#studio">Design Studio</a>
           <a href="#portfolio">Portfolio</a>
-          <a href="#why">Why InkMind</a>
+          <a href="#why">Why Frewstar Labs</a>
           <a href="#book">Book</a>
         </div>
       </nav>
@@ -35,7 +36,7 @@ export default function HomeContent() {
           One tap to book.
         </h1>
         <p className="hero-sub animate-hero-sub">
-          Describe the tattoo you&apos;re imagining. InkMind generates designs in
+          Describe the tattoo you&apos;re imagining. Frewstar Labs generates designs in
           your artist&apos;s signature style — then you book directly. No DMs, no
           guesswork.
         </p>
@@ -195,11 +196,11 @@ export default function HomeContent() {
       {/* ─── FOOTER ─── */}
       <footer>
         <div className="footer-logo">
-          Ink<span>Mind</span>
+          <img src={LOGO_PATH} alt={LOGO_ALT} className="footer-logo-img" />
         </div>
         <p>AI-powered tattoo design. Built by Frewstar Labs.</p>
         <p style={{ marginTop: "6px", color: "#333" }}>
-          © 2026 InkMind. All rights reserved.
+          © 2026 Frewstar Labs. All rights reserved.
         </p>
       </footer>
 
