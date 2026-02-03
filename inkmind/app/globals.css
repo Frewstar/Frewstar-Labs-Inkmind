@@ -536,6 +536,8 @@ section {
   display: flex; flex-direction: column; justify-content: flex-end;
   padding: 20px;
   opacity: 0; transition: opacity 0.3s;
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
 }
 .gallery-card:hover .card-overlay { opacity: 1; }
 .card-overlay-btns {
@@ -963,6 +965,53 @@ footer p { font-size: 12px; color: var(--grey-dim); }
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* ─── Manual Prompt (Freehand) ───────────────────────────────────────────────── */
+.manual-prompt-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 40px;
+  background: #141414;
+  border-radius: 14px;
+  border: 1px solid rgba(232, 180, 90, 0.15);
+  animation: wizard-fade-in 0.3s ease-out;
+}
+
+.manual-textarea {
+  min-height: 200px;
+  background: #0A0A0A;
+  border: 1px solid rgba(232, 180, 90, 0.12);
+  border-radius: 10px;
+  padding: 20px;
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  resize: none;
+}
+
+.mode-toggle-btn {
+  background: transparent;
+  border: 1px solid rgba(232, 180, 90, 0.2);
+  color: #999;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 12px;
+  display: inline-flex;
+  align-self: flex-end;
+}
+
+.mode-toggle-btn:hover {
+  color: var(--gold);
+  border-color: var(--gold);
+  background: var(--gold-dim);
 }
 
 .wizard-step {
@@ -1400,6 +1449,8 @@ footer p { font-size: 12px; color: var(--grey-dim); }
   opacity: 0;
   transition: opacity 0.3s ease;
   border-radius: inherit;
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
 }
 
 .gallery-card:hover .card-overlay {
@@ -1428,6 +1479,66 @@ footer p { font-size: 12px; color: var(--grey-dim); }
   font-size: 13px;
   color: #999;
   margin: 0;
+}
+
+/* ─── Design History (Saved Library) ──────────────────────────────────────── */
+
+.history-section {
+  margin-top: 60px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 40px;
+}
+
+.history-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.history-card {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-card);
+  border: 1px solid rgba(232, 180, 90, 0.1);
+  transition: all 0.2s ease;
+}
+
+.history-card:hover {
+  border-color: var(--gold);
+  transform: translateY(-2px);
+}
+
+.history-thumb {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  opacity: 0.7;
+}
+
+.history-card:hover .history-thumb {
+  opacity: 1;
+}
+
+.history-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 12px 8px 8px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.9), transparent);
+  font-size: 10px;
+  color: var(--gold);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-overlay .overlay-btn-main {
+  margin-top: 0;
 }
 
 /* ─── Responsive Adjustments ─────────────────────────────────────────────── */

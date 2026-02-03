@@ -1,12 +1,45 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import BookingModal from "./BookingModal";
 import ConversationalWizard from "./ConversationalWizard";
 
 export type DesignStudioProps = {
   onOpenBooking?: () => void;
 };
+
+// ─── Saved Design Library (localStorage) ─────────────────────────────────────
+
+const SAVED_DESIGNS_KEY = "inkmind_saved_designs_v1";
+
+export type SavedDesign = {
+  id: string;
+  prompt: string;
+  style: string;
+  image: string;
+  date: string;
+};
+
+function loadDesignLibrary(): SavedDesign[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(SAVED_DESIGNS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDesignLibrary(items: SavedDesign[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(SAVED_DESIGNS_KEY, JSON.stringify(items));
+  } catch {
+    // ignore
+  }
+}
 
 // ─── DATA ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +64,10 @@ const CARD_BG = [
   "radial-gradient(ellipse at 70% 30%, #0f1a1a 0%, #0e0e0e 60%)",
   "radial-gradient(ellipse at 50% 80%, #1a0f0f 0%, #0e0e0e 60%)",
   "radial-gradient(ellipse at 20% 40%, #151a0f 0%, #0e0e0e 60%)",
+];
+
+const PLACEMENT_OPTIONS = [
+  "Forearm", "Upper Arm", "Chest", "Back", "Thigh", "Shoulder", "Calf",
 ];
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
@@ -79,14 +116,27 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
   const [error, setError] = useState<string | null>(null);
   const [errorConsoleUrl, setErrorConsoleUrl] = useState<string | null>(null);
   const [isPaid, setIsPaid] = useState(false); // High Quality (Paid Tier)
+  const [isManualMode, setIsManualMode] = useState(false); // Manual prompt vs Wizard
+  const [manualPrompt, setManualPrompt] = useState("");
+  const [manualPlacement, setManualPlacement] = useState("Forearm");
+  const [lastWizardPrompt, setLastWizardPrompt] = useState(""); // Pre-fill when ejecting from wizard
+  const [lastWizardPlacement, setLastWizardPlacement] = useState<string | null>(null);
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
-  const [savedDesigns, setSavedDesigns] = useState<Set<number>>(new Set()); // Track saved designs
+  const [designLibrary, setDesignLibrary] = useState<SavedDesign[]>(loadDesignLibrary);
+  const [lastGenerationPrompt, setLastGenerationPrompt] = useState("");
+  const [lastGenerationStyle, setLastGenerationStyle] = useState(selectedStyle);
+  const [savedInSession, setSavedInSession] = useState<Set<number>>(new Set()); // which current gallery indices were saved this session
 
   const useExternalBooking = !!externalOpenBooking;
   const openBookingModal = useExternalBooking ? externalOpenBooking! : () => setBookingModalOpen(true);
   const closeBookingModal = () => setBookingModalOpen(false);
 
   const showPlaceholders = designs.length === 0;
+
+  // Persist design library to localStorage when it changes
+  useEffect(() => {
+    saveDesignLibrary(designLibrary);
+  }, [designLibrary]);
 
   // Download a design
   const handleDownload = (dataUrl: string, index: number) => {
@@ -98,18 +148,29 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
     document.body.removeChild(link);
   };
 
-  // Save/unsave a design
-  const toggleSave = (index: number) => {
-    setSavedDesigns(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(index)) {
-        newSet.delete(index);
-      } else {
-        newSet.add(index);
-      }
-      return newSet;
-    });
-  };
+  // Save a design to the library (image + prompt used for generation)
+  const handleSaveToLibrary = useCallback((index: number) => {
+    const dataUrl = designs[index];
+    if (!dataUrl) return;
+    const prompt = lastGenerationPrompt || manualPrompt || "Custom design";
+    const style = lastGenerationStyle || selectedStyle;
+    const entry: SavedDesign = {
+      id: `saved-${Date.now()}-${index}`,
+      prompt,
+      style,
+      image: dataUrl,
+      date: new Date().toISOString(),
+    };
+    setDesignLibrary(prev => [entry, ...prev]);
+    setSavedInSession(prev => new Set(prev).add(index));
+  }, [designs, lastGenerationPrompt, lastGenerationStyle, manualPrompt, selectedStyle]);
+
+  // Load a saved design into the editor (manual mode + prompt + style)
+  const handleLoadIntoEditor = useCallback((saved: SavedDesign) => {
+    setIsManualMode(true);
+    setManualPrompt(saved.prompt);
+    setSelectedStyle(saved.style);
+  }, []);
 
   // Wizard completion handler
   const handleWizardComplete = async (finalPrompt: string, placement: string) => {
@@ -137,7 +198,9 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
       }
       const newDesigns = Array.isArray(data.designs) ? data.designs : [];
       setDesigns(newDesigns);
-      setSavedDesigns(new Set()); // Reset saved state on new generation
+      setLastGenerationPrompt(finalPrompt);
+      setLastGenerationStyle(selectedStyle);
+      setSavedInSession(new Set());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
       setErrorConsoleUrl(null);
@@ -238,17 +301,100 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
           </p>
         </div>
 
-        <div style={{ marginTop: 32 }}>
+        {/* Mode toggle: Guided (Wizard) vs Manual prompt */}
+        <div style={{ marginTop: 24, marginBottom: 8, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+          <button
+            type="button"
+            onClick={() => setIsManualMode((m) => !m)}
+            style={{
+              background: "none",
+              border: "none",
+              color: "rgba(232, 180, 90, 0.9)",
+              fontSize: 13,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              padding: 0,
+              textDecoration: "underline",
+              textUnderlineOffset: 4,
+            }}
+          >
+            {isManualMode ? "← Back to guided designer" : "Skip to manual prompt"}
+          </button>
+          {!isManualMode && (
+            <button
+              type="button"
+              className="mode-toggle-btn"
+              onClick={() => {
+                setManualPrompt(lastWizardPrompt);
+                if (lastWizardPlacement) setManualPlacement(lastWizardPlacement);
+                setIsManualMode(true);
+              }}
+            >
+              Switch to manual mode
+            </button>
+          )}
+        </div>
+
+        <div style={{ marginTop: 24 }}>
           {loading ? (
             <div className="wizard-loading">
               <div className="wizard-spinner" />
               <p>Generating {designCount} design{designCount > 1 ? 's' : ''}...</p>
+            </div>
+          ) : isManualMode ? (
+            <div className="manual-prompt-container">
+              <label htmlFor="manual-prompt" style={{ display: "block", fontSize: 14, fontWeight: 500 }}>
+                Describe your tattoo
+              </label>
+              <textarea
+                id="manual-prompt"
+                className="manual-textarea"
+                value={manualPrompt}
+                onChange={(e) => setManualPrompt(e.target.value)}
+                placeholder="e.g. A fine-line blackwork raven with geometric patterns, bold and minimal, for forearm placement"
+                disabled={loading}
+              />
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <label htmlFor="manual-placement" style={{ fontSize: 14 }}>Placement</label>
+                <select
+                  id="manual-placement"
+                  value={manualPlacement}
+                  onChange={(e) => setManualPlacement(e.target.value)}
+                  disabled={loading}
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(232, 180, 90, 0.25)",
+                    background: "rgba(10, 10, 10, 0.6)",
+                    color: "#f5f5f5",
+                    fontSize: 14,
+                  }}
+                >
+                  {PLACEMENT_OPTIONS.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => handleWizardComplete(manualPrompt.trim(), manualPlacement)}
+                  disabled={loading || !manualPrompt.trim()}
+                  className="wizard-btn-next"
+                  style={{ marginLeft: "auto" }}
+                >
+                  Generate
+                </button>
+              </div>
             </div>
           ) : (
             <ConversationalWizard
               onComplete={handleWizardComplete}
               selectedStyle={selectedStyle}
               isPaid={isPaid}
+              onPromptChange={(prompt, placement) => {
+                setLastWizardPrompt(prompt);
+                setLastWizardPlacement(placement);
+              }}
             />
           )}
         </div>
@@ -314,10 +460,10 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                       <button
                         type="button"
                         className="action-btn"
-                        onClick={() => toggleSave(i)}
-                        title={savedDesigns.has(i) ? "Unsave" : "Save"}
+                        onClick={() => handleSaveToLibrary(i)}
+                        title={savedInSession.has(i) ? "Saved to library" : "Save to library"}
                       >
-                        <HeartIcon filled={savedDesigns.has(i)} />
+                        <HeartIcon filled={savedInSession.has(i)} />
                       </button>
                       <button
                         type="button"
@@ -340,12 +486,38 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
               ))}
         </div>
 
-        {/* Saved designs section */}
-        {savedDesigns.size > 0 && (
-          <div className="saved-designs-section">
-            <h3>Saved Designs ({savedDesigns.size})</h3>
-            <p className="saved-hint">Your saved designs are stored in this session only</p>
-          </div>
+        {/* Your Design History (saved to localStorage) */}
+        {designLibrary.length > 0 && (
+          <section className="history-section">
+            <h3 className="section-label">Your Design History</h3>
+            <p className="saved-hint" style={{ marginTop: 4 }}>
+              Saved designs — load any into the editor to tweak and regenerate
+            </p>
+            <div className="history-grid">
+              {designLibrary.map((saved) => (
+                <div key={saved.id} className="history-card">
+                  <img
+                    src={saved.image}
+                    alt=""
+                    className="history-thumb"
+                  />
+                  <div className="history-overlay">
+                    <span title={saved.prompt}>
+                      {saved.prompt.slice(0, 40)}{saved.prompt.length > 40 ? "…" : ""}
+                    </span>
+                    <button
+                      type="button"
+                      className="overlay-btn-main"
+                      style={{ marginTop: 8, width: "100%", fontSize: 12, padding: "8px 12px" }}
+                      onClick={() => handleLoadIntoEditor(saved)}
+                    >
+                      Load into Editor
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
         )}
 
         {/* Booking strip */}

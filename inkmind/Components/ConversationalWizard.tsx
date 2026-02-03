@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
@@ -18,6 +18,8 @@ interface ConversationalWizardProps {
   onComplete: (finalPrompt: string, placement: string) => void;
   selectedStyle: string;
   isPaid?: boolean;
+  /** Called when wizard state changes so parent can pre-fill manual mode on eject */
+  onPromptChange?: (prompt: string, placement: string | null) => void;
 }
 
 // ─── DATA ────────────────────────────────────────────────────────────────────
@@ -112,7 +114,7 @@ function DiamondIcon() {
   );
 }
 
-export default function ConversationalWizard({ onComplete, selectedStyle, isPaid = false }: ConversationalWizardProps) {
+export default function ConversationalWizard({ onComplete, selectedStyle, isPaid = false, onPromptChange }: ConversationalWizardProps) {
   const [currentStep, setCurrentStep] = useState<WizardStep>("meaning");
   const [state, setState] = useState<WizardState>({
     meaning: null,
@@ -121,6 +123,10 @@ export default function ConversationalWizard({ onComplete, selectedStyle, isPaid
     vibe: null,
     elements: "",
   });
+
+  useEffect(() => {
+    onPromptChange?.(buildPrompt(state, selectedStyle), state.placement);
+  }, [state, selectedStyle]);
 
   const stepIndex = STEP_ORDER.indexOf(currentStep);
   const canGoBack = stepIndex > 0;
