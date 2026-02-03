@@ -1,10 +1,9 @@
 /**
  * InstagramPortfolio — Server Component
  * Displays a 3-column grid of placeholder portfolio images.
- * Uses next/image for optimization. Gold border + 4px lift on hover per rules.md.
+ * Uses plain img so it works without next.config images hostname config.
+ * Gold border + 4px lift on hover per rules.md.
  */
-
-import Image from "next/image";
 
 type PortfolioImage = {
   id: string;
@@ -40,11 +39,9 @@ export default function InstagramPortfolio() {
               rel="noopener noreferrer"
               className="instagram-card"
             >
-              <Image
+              <img
                 src={item.url}
                 alt="Portfolio tattoo design"
-                fill
-                sizes="(max-width: 600px) 33vw, (max-width: 860px) 33vw, 360px"
                 className="instagram-card-img"
               />
               <span className="instagram-card-hover" aria-hidden />

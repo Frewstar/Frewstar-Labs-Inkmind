@@ -1,0 +1,25 @@
+/* ─── Gallery Card Image Styles ───────────────────────────────────────────── */
+
+.gallery-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+/* If your existing CSS already has .gallery-card with aspect-ratio and positioning, 
+   this is all you need. Otherwise, make sure .gallery-card has: */
+
+.gallery-card {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 14px;
+  overflow: hidden;
+  /* background gradients already applied inline */
+  transition: all 0.3s ease;
+}
+
+.gallery-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(232, 180, 90, 0.25);
+}

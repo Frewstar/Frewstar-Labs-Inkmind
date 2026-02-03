@@ -1,0 +1,159 @@
+/* ─── Generation Count Selector ──────────────────────────────────────────── */
+
+.generation-count-selector {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.count-btn {
+  flex: 1;
+  padding: 12px;
+  background: #0A0A0A;
+  border: 1px solid rgba(232, 180, 90, 0.12);
+  border-radius: 50px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #999;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: var(--font-head);
+}
+
+.count-btn:hover {
+  background: #1c1c1c;
+  border-color: rgba(232, 180, 90, 0.25);
+  color: #fff;
+}
+
+.count-btn.active {
+  background: rgba(232, 180, 90, 0.15);
+  border-color: #E8B45A;
+  color: #E8B45A;
+  box-shadow: 0 0 0 1px rgba(232, 180, 90, 0.3);
+}
+
+.count-hint {
+  font-size: 13px;
+  color: #5a5a5a;
+  margin: 0;
+  font-style: italic;
+}
+
+/* ─── Card Actions (Download, Save, Book) ────────────────────────────────── */
+
+.card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 0 20px;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  background: rgba(10, 10, 10, 0.8);
+  border: 1px solid rgba(232, 180, 90, 0.3);
+  border-radius: 50%;
+  color: #E8B45A;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(10px);
+  width: 44px;
+  height: 44px;
+}
+
+.action-btn:hover {
+  background: rgba(232, 180, 90, 0.15);
+  border-color: #E8B45A;
+  transform: scale(1.05);
+}
+
+.overlay-btn-main {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #E8B45A 0%, #d4a04e 100%);
+  border: 1px solid transparent;
+  border-radius: 50px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0A0A0A;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: var(--font-head);
+  margin-top: 8px;
+}
+
+.overlay-btn-main:hover {
+  background: linear-gradient(135deg, #f0c06a 0%, #e0b060 100%);
+  box-shadow: 0 4px 16px rgba(232, 180, 90, 0.4);
+  transform: translateY(-2px);
+}
+
+/* Update card-overlay to use flexbox for centering */
+.card-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 10, 10, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  border-radius: inherit;
+}
+
+.gallery-card:hover .card-overlay {
+  opacity: 1;
+}
+
+/* ─── Saved Designs Section ──────────────────────────────────────────────── */
+
+.saved-designs-section {
+  margin-top: 32px;
+  padding: 24px;
+  background: rgba(232, 180, 90, 0.05);
+  border: 1px solid rgba(232, 180, 90, 0.15);
+  border-radius: 14px;
+}
+
+.saved-designs-section h3 {
+  font-family: var(--font-head);
+  font-size: 18px;
+  font-weight: 700;
+  color: #E8B45A;
+  margin: 0 0 8px 0;
+}
+
+.saved-hint {
+  font-size: 13px;
+  color: #999;
+  margin: 0;
+}
+
+/* ─── Responsive Adjustments ─────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .card-actions {
+    flex-direction: row;
+    justify-content: center;
+    padding: 0 12px;
+  }
+
+  .overlay-btn-main {
+    flex: 1;
+    margin-top: 0;
+  }
+
+  .action-btn {
+    width: 40px;
+    height: 40px;
+  }
+}

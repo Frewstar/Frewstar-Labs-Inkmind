@@ -1,142 +1,200 @@
-import { NextResponse } from "next/server";
-import anthropic from "@/lib/anthropic";
+import { NextRequest, NextResponse } from "next/server";
+import { getAccessToken } from "@/lib/google-auth";
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-const DEFAULT_VIEWBOX = "0 0 400 400";
-const DESIGN_DELIMITER = "===DESIGN===";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID?.trim().replace(/^["']|["']$/g, "");
+// Vertex AI location: "global" (default) or a region e.g. "us-central1"
+// https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations
+const VERTEX_LOCATION = (process.env.VERTEX_LOCATION || "global").trim().replace(/^["']|["']$/g, "");
 
-/** Strip markdown code fences (```svg, ```xml, ```html, ```) and extract raw SVG. */
-function stripMarkdownAndExtractSvg(chunk: string): string | null {
-  let s = chunk.trim();
-  // Remove leading fence: ```svg, ```xml, ```html, or plain ```
-  s = s.replace(/^\s*```(?:svg|xml|html)?\s*\n?/i, "").trim();
-  // Remove trailing fence
-  s = s.replace(/\n?```\s*$/i, "").trim();
-  // Find first <svg ... > and matching </svg>
-  const open = s.indexOf("<svg");
-  if (open === -1) return null;
-  const close = s.indexOf("</svg>", open);
-  if (close === -1) return null;
-  return s.slice(open, close + "</svg>".length);
+// Free tier: Gemini 2.5 Flash (image) — uses GEMINI_API_KEY
+const FREE_MODEL_ID = "gemini-2.5-flash-image";
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${FREE_MODEL_ID}:generateContent`;
+
+// Paid tier: Vertex AI generateContent (Bearer token, no ?key=)
+// Doc: https://cloud.google.com/vertex-ai/generative-ai/docs/reference/rest/v1/projects.locations.publishers.models/generateContent
+// Requires: Vertex AI API enabled, billing on project, service account with roles/aiplatform.user
+const PAID_MODEL_ID = "gemini-3-pro-image-preview";
+const getPaidTierEndpoint = () =>
+  `https://aiplatform.googleapis.com/v1/projects/${GCP_PROJECT_ID}/locations/${VERTEX_LOCATION}/publishers/google/models/${PAID_MODEL_ID}:generateContent`;
+
+interface GenerateRequest {
+  prompt: string;
+  style: string;
+  placement: string;
+  count?: number;
+  isPaid?: boolean;
 }
 
-/** Fix AI hallucinations: strip markdown link syntax from xmlns (e.g. [url](url) -> url). */
-function sanitizeXmlns(svg: string): string {
-  return svg.replace(
-    /xmlns\s*=\s*["']\[[^\]]*\][^"']*["']/gi,
-    `xmlns="${SVG_NS}"`
-  );
-}
-
-/** Ensure SVG has xmlns, viewBox, and tattoo-sketch class so it renders correctly. */
-function normalizeSvg(svg: string): string {
-  let out = sanitizeXmlns(svg);
-  if (!/xmlns\s*=\s*["']http:\/\/www\.w3\.org\/2000\/svg["']/i.test(out)) {
-    out = out.replace(/<svg(?=\s|>)/, `<svg xmlns="${SVG_NS}"`);
-  }
-  if (!/viewBox\s*=/i.test(out)) {
-    out = out.replace(/<svg(?=\s|>)/, `<svg viewBox="${DEFAULT_VIEWBOX}"`);
-  }
-  // Add tattoo-sketch class for gallery sizing (matches placeholder SVGs)
-  if (!/class\s*=\s*["'][^"']*tattoo-sketch/i.test(out)) {
-    const classMatch = out.match(/<svg[^>]*class\s*=\s*["']([^"']*)["']/i);
-    if (classMatch) {
-      out = out.replace(
-        /class\s*=\s*["'][^"']*["']/i,
-        `class="${classMatch[1]} tattoo-sketch"`
-      );
-    } else {
-      out = out.replace(/<svg(?=\s|>)/, `<svg class="tattoo-sketch"`);
-    }
-  }
-  return out;
-}
-
-/** Extract all <svg>...</svg> blocks from text (fallback when delimiter split fails). */
-function extractAllSvgs(text: string): string[] {
-  const results: string[] = [];
-  let pos = 0;
-  while (pos < text.length) {
-    const open = text.indexOf("<svg", pos);
-    if (open === -1) break;
-    const close = text.indexOf("</svg>", open);
-    if (close === -1) break;
-    results.push(text.slice(open, close + 6));
-    pos = close + 6;
-  }
-  return results;
-}
-
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return NextResponse.json(
-        { error: "API key is missing. Set ANTHROPIC_API_KEY in your environment." },
-        { status: 500 }
-      );
-    }
-
-    const { prompt, style, placement } = await req.json();
+    const body: GenerateRequest = await req.json();
+    const { prompt, style, placement, count = 4, isPaid = false } = body;
 
     if (!prompt || !style || !placement) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Missing required fields: prompt, style, placement" },
         { status: 400 }
       );
     }
 
-    const systemPrompt = `You are an expert tattoo designer. Your job is to generate
-detailed SVG tattoo design sketches.
-
-Rules:
-- Output ONLY valid SVG markup. No explanations, no markdown, no code fences (no \`\`\`).
-- Each SVG MUST include xmlns='http://www.w3.org/2000/svg' and viewBox="0 0 400 400".
-- Use stroke-based drawing (no fill) to mimic ink on skin.
-- Line work: use curves and varying stroke-widths.
-- Style: ${style}. Placement: ${placement}.
-- Colors: Black (#1a1a1a) and dark grey (#333).
-- Gold accents: Use #E8B45A at 50% opacity for focal points.`;
-
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-5",
-      max_tokens: 4000,
-      system: systemPrompt,
-      messages: [
-        {
-          role: "user",
-          content: `Generate 4 different tattoo designs for: ${prompt}. 
-          Return them as SVGs separated by the delimiter: ===DESIGN===`,
-        },
-      ],
-    });
-
-    const text = message.content[0].type === "text" ? message.content[0].text : "";
-    const rawChunks = text
-      .split(DESIGN_DELIMITER)
-      .map((s) => s.trim())
-      .filter(Boolean);
-
-    const designs: string[] = [];
-    for (const chunk of rawChunks) {
-      const extracted = stripMarkdownAndExtractSvg(chunk);
-      if (extracted) designs.push(normalizeSvg(extracted));
-      if (designs.length >= 4) break;
-    }
-
-    // Fallback: if delimiter split yielded nothing useful, extract all SVGs from full text
-    if (designs.length === 0) {
-      const allSvgs = extractAllSvgs(text);
-      for (const raw of allSvgs.slice(0, 4)) {
-        designs.push(normalizeSvg(raw));
+    if (isPaid) {
+      if (!GCP_PROJECT_ID) {
+        return NextResponse.json(
+          { error: "GCP_PROJECT_ID not configured. Required for Paid tier." },
+          { status: 500 }
+        );
+      }
+    } else {
+      if (!GEMINI_API_KEY) {
+        return NextResponse.json(
+          { error: "GEMINI_API_KEY not configured in environment" },
+          { status: 500 }
+        );
       }
     }
 
-    return NextResponse.json({ designs: designs.length ? designs : [] });
+    const fullPrompt = buildTattooPrompt(prompt, style, placement);
+
+    const modelLabel = isPaid ? `Paid tier (${PAID_MODEL_ID})` : `Free tier (${FREE_MODEL_ID})`;
+    console.log(`[InkMind] Generating ${count} images using ${modelLabel}`);
+
+    let token: string | undefined;
+    if (isPaid) {
+      token = await getAccessToken();
+    }
+
+    const images: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const imageData = await generateSingleImage(fullPrompt, { isPaid, token });
+      if (imageData) {
+        images.push(imageData);
+      } else {
+        console.warn(`[InkMind] Failed to generate image ${i + 1}/${count}`);
+      }
+    }
+
+    if (images.length === 0) {
+      return NextResponse.json(
+        { error: "Failed to generate any images. Check console logs for details." },
+        { status: 500 }
+      );
+    }
+
+    console.log(`[InkMind] Successfully generated ${images.length}/${count} images`);
+    return NextResponse.json({ designs: images });
   } catch (error) {
-    console.error("AI Generation Error:", error);
+    console.error("[InkMind] Image generation error:", error);
     return NextResponse.json(
-      { error: "Failed to generate designs" },
+      { error: error instanceof Error ? error.message : "Generation failed" },
       { status: 500 }
     );
+  }
+}
+
+function buildTattooPrompt(userPrompt: string, style: string, placement: string): string {
+  const styleMap: Record<string, string> = {
+    "fine-line": "Fine-line blackwork",
+    "geometric": "Geometric blackwork",
+    "blackwork": "Bold blackwork",
+    "watercolor": "Watercolor with black outlines",
+    "traditional": "Traditional American style",
+    "minimalist": "Minimalist fine-line",
+  };
+
+  const styleName = styleMap[style] || style;
+
+  return `Create a professional tattoo design on a clean white background, ready to show a client.
+
+STYLE: ${styleName}
+SUBJECT: ${userPrompt}
+PLACEMENT: ${placement}
+
+ARTIST DIRECTION:
+- Inspired by Mars's signature style: minimal architectural aesthetic with bold linework
+- High contrast black ink with subtle gold (#E8B45A) accent details where appropriate
+- Clean, centered composition on pure white background
+- No skin texture, no background elements, just the design itself
+- Tattoo-ready quality — what the client would actually see as a design sketch
+
+TECHNICAL REQUIREMENTS:
+- Crisp linework that would translate well to skin
+- Appropriate detail level for the specified placement
+- Composition optimized for ${placement.toLowerCase()} anatomy
+- Looks like a professional tattoo artist's final design sketch, not generic art
+- Isolated on white background, centered, no shadows or gradients on the background`;
+}
+
+async function generateSingleImage(
+  prompt: string,
+  options: { isPaid?: boolean; token?: string } = {}
+): Promise<string | null> {
+  const { isPaid = false, token } = options;
+
+  const requestBody = {
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: prompt }],
+      },
+    ],
+    generationConfig: isPaid
+      ? { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "1:1", imageSize: "2K" } }
+      : { responseModalities: ["IMAGE"] },
+  };
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  let url: string;
+  if (isPaid && token) {
+    url = getPaidTierEndpoint();
+    headers["Authorization"] = `Bearer ${token}`;
+  } else {
+    url = `${GEMINI_ENDPOINT}?key=${GEMINI_API_KEY}`;
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(requestBody),
+    });
+
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      console.error(`[InkMind] Gemini API error (${response.status}):`, responseText);
+
+      try {
+        const errorData = JSON.parse(responseText);
+        const errorMsg = errorData?.error?.message || errorData?.error?.status || "Unknown error";
+        console.error(`[InkMind] Error details:`, errorMsg);
+      } catch {
+        console.error(`[InkMind] Raw error:`, responseText.slice(0, 500));
+      }
+
+      return null;
+    }
+
+    const data = JSON.parse(responseText);
+
+    // Extract base64 image from response
+    const candidate = data.candidates?.[0];
+    const parts = candidate?.content?.parts || [];
+    const imagePart = parts.find((p: any) => p.inlineData?.data);
+
+    if (!imagePart?.inlineData?.data) {
+      console.error("[InkMind] No image data in response");
+      console.error("[InkMind] Response structure:", JSON.stringify(data, null, 2));
+      return null;
+    }
+
+    const mimeType = imagePart.inlineData.mimeType || "image/png";
+    return `data:${mimeType};base64,${imagePart.inlineData.data}`;
+  } catch (error) {
+    console.error("[InkMind] Failed to generate image:", error);
+    return null;
   }
 }

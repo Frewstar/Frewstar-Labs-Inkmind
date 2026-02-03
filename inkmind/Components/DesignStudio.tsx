@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import BookingModal from "./BookingModal";
+import ConversationalWizard from "./ConversationalWizard";
 
 export type DesignStudioProps = {
-  /** When provided, parent owns the booking modal; use this instead of internal state */
   onOpenBooking?: () => void;
 };
 
@@ -19,66 +19,13 @@ const STYLES = [
   { id: "minimalist", label: "Minimalist",  icon: "◇" },
 ];
 
-const PLACEMENTS = [
-  "Forearm", "Upper Arm", "Chest", "Back", "Thigh", "Neck", "Hand",
+const PLACEHOLDER_IMAGES = [
+  "https://picsum.photos/seed/tattoo1/800/800",
+  "https://picsum.photos/seed/tattoo2/800/800",
+  "https://picsum.photos/seed/tattoo3/800/800",
+  "https://picsum.photos/seed/tattoo4/800/800",
 ];
 
-// ─── PLACEHOLDER SVGs (shown before the user generates anything) ─────────────
-// These match the original HTML mockup exactly.
-
-const PLACEHOLDER_SVGS = [
-  // 1 — fine-line snake + chrysanthemum
-  `<svg class="tattoo-sketch" viewBox="0 0 200 200" fill="none" stroke="rgba(232,180,90,0.55)" stroke-width="1.2" stroke-linecap="round">
-    <path d="M60,180 C55,150 80,130 70,100 C60,70 90,60 85,40 C80,20 100,15 110,30"/>
-    <ellipse cx="115" cy="24" rx="10" ry="7" stroke-width="1.5"/>
-    <circle cx="112" cy="22" r="1.5" fill="rgba(232,180,90,0.55)"/>
-    <ellipse cx="90" cy="110" rx="12" ry="6" transform="rotate(-30 90 110)"/>
-    <ellipse cx="78" cy="108" rx="11" ry="5" transform="rotate(-60 78 108)"/>
-    <ellipse cx="102" cy="105" rx="11" ry="5" transform="rotate(10 102 105)"/>
-    <ellipse cx="85" cy="98" rx="10" ry="5" transform="rotate(-10 85 98)"/>
-    <ellipse cx="95" cy="96" rx="9" ry="4" transform="rotate(20 95 96)"/>
-    <ellipse cx="88" cy="118" rx="8" ry="4" transform="rotate(-5 88 118)"/>
-    <path d="M65,160 C68,155 62,148 66,142"/>
-    <path d="M72,135 C75,128 70,122 74,116"/>
-  </svg>`,
-
-  // 2 — geometric variation
-  `<svg class="tattoo-sketch" viewBox="0 0 200 200" fill="none" stroke="rgba(232,180,90,0.5)" stroke-width="1" stroke-linecap="round">
-    <polygon points="100,20 170,70 170,150 100,180 30,150 30,70" stroke-width="1.2"/>
-    <polygon points="100,40 150,75 150,140 100,160 50,140 50,75" stroke-width="0.8" stroke-dasharray="4 3"/>
-    <path d="M75,120 C80,100 95,95 90,75 C85,58 105,55 110,70 C115,82 100,85 105,100 C108,110 95,115 90,105"/>
-    <circle cx="100" cy="95" r="8"/>
-    <circle cx="100" cy="95" r="3" fill="rgba(232,180,90,0.2)"/>
-    <line x1="100" y1="87" x2="100" y2="72"/><line x1="108" y1="90" x2="118" y2="78"/>
-    <line x1="92" y1="90" x2="82" y2="78"/><line x1="100" y1="103" x2="100" y2="118"/>
-    <line x1="108" y1="100" x2="118" y2="112"/><line x1="92" y1="100" x2="82" y2="112"/>
-  </svg>`,
-
-  // 3 — bold blackwork
-  `<svg class="tattoo-sketch" viewBox="0 0 200 200" fill="none" stroke="rgba(232,180,90,0.45)" stroke-width="1.4" stroke-linecap="round">
-    <path d="M50,170 C45,140 75,120 65,90 C55,60 85,50 90,70 C95,88 75,92 80,110 C83,125 70,130 65,140" stroke-width="2.5"/>
-    <ellipse cx="95" cy="100" rx="18" ry="8" transform="rotate(-25 95 100)" stroke-width="2"/>
-    <ellipse cx="78" cy="98" rx="16" ry="7" transform="rotate(-55 78 98)" stroke-width="1.8"/>
-    <ellipse cx="112" cy="95" rx="16" ry="7" transform="rotate(15 112 95)" stroke-width="1.8"/>
-    <ellipse cx="90" cy="82" rx="14" ry="6" transform="rotate(-5 90 82)" stroke-width="1.6"/>
-    <ellipse cx="105" cy="80" rx="13" ry="6" transform="rotate(25 105 80)" stroke-width="1.5"/>
-    <circle cx="97" cy="93" r="6" stroke-width="2"/>
-  </svg>`,
-
-  // 4 — minimal abstract
-  `<svg class="tattoo-sketch" viewBox="0 0 200 200" fill="none" stroke="rgba(232,180,90,0.4)" stroke-width="0.8" stroke-linecap="round">
-    <path d="M70,175 C68,155 85,145 82,125 C79,105 95,100 92,82 C89,65 105,58 108,72" stroke-width="1.2"/>
-    <ellipse cx="112" cy="68" rx="6" ry="4" stroke-width="1"/>
-    <path d="M85,110 C82,105 88,100 84,95 C81,91 86,87 90,90 C93,92 90,97 94,100 C97,102 94,107 90,108 C87,109 85,112 85,110 Z" stroke-width="1.2"/>
-    <line x1="75" y1="140" x2="80" y2="135" opacity="0.5"/><line x1="78" y1="130" x2="83" y2="125" opacity="0.4"/>
-    <line x1="80" y1="120" x2="85" y2="115" opacity="0.3"/>
-    <circle cx="65" cy="155" r="1.5" fill="rgba(232,180,90,0.3)"/>
-    <circle cx="72" cy="148" r="1" fill="rgba(232,180,90,0.25)"/>
-    <circle cx="60" cy="162" r="1" fill="rgba(232,180,90,0.2)"/>
-  </svg>`,
-];
-
-// Card background gradients — one per placeholder slot
 const CARD_BG = [
   "radial-gradient(ellipse at 30% 70%, #1a1205 0%, #0e0e0e 60%)",
   "radial-gradient(ellipse at 70% 30%, #0f1a1a 0%, #0e0e0e 60%)",
@@ -88,14 +35,6 @@ const CARD_BG = [
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
 
-function GenerateIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 18, height: 18 }}>
-      <path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" />
-    </svg>
-  );
-}
-
 function ArrowIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
@@ -104,49 +43,104 @@ function ArrowIcon() {
   );
 }
 
+function DownloadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  );
+}
+
+function HeartIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg 
+      viewBox="0 0 24 24" 
+      fill={filled ? "currentColor" : "none"} 
+      stroke="currentColor" 
+      strokeWidth="2" 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+      style={{ width: 16, height: 16 }}
+    >
+      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+    </svg>
+  );
+}
+
 // ─── COMPONENT ───────────────────────────────────────────────────────────────
 
 export default function DesignStudio({ onOpenBooking: externalOpenBooking }: DesignStudioProps = {}) {
-  const [prompt, setPrompt]               = useState("A geometric snake coiling around a chrysanthemum, fine line work, minimal shading");
   const [selectedStyle, setSelectedStyle] = useState("fine-line");
-  const [selectedPlacement, setSelectedPlacement] = useState("Forearm");
-  const [designs, setDesigns]             = useState<string[]>([]);   // SVG strings from API
-  const [loading, setLoading]             = useState(false);
-  const [error, setError]                 = useState<string | null>(null);
-  const [lastGeneratedPrompt, setLastGeneratedPrompt] = useState<string>("");
+  const [designCount, setDesignCount] = useState(4); // New: adjustable count
+  const [designs, setDesigns] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [errorConsoleUrl, setErrorConsoleUrl] = useState<string | null>(null);
+  const [isPaid, setIsPaid] = useState(false); // High Quality (Paid Tier)
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
+  const [savedDesigns, setSavedDesigns] = useState<Set<number>>(new Set()); // Track saved designs
 
   const useExternalBooking = !!externalOpenBooking;
   const openBookingModal = useExternalBooking ? externalOpenBooking! : () => setBookingModalOpen(true);
   const closeBookingModal = () => setBookingModalOpen(false);
 
-  // Whether we're showing AI-generated results or the original placeholders
   const showPlaceholders = designs.length === 0;
 
-  // ── Generate ──
-  const handleGenerate = async () => {
-    if (!prompt.trim() || loading) return;
+  // Download a design
+  const handleDownload = (dataUrl: string, index: number) => {
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = `inkmind-design-${index + 1}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Save/unsave a design
+  const toggleSave = (index: number) => {
+    setSavedDesigns(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
+  };
+
+  // Wizard completion handler
+  const handleWizardComplete = async (finalPrompt: string, placement: string) => {
     setLoading(true);
     setError(null);
+    setErrorConsoleUrl(null);
 
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: prompt.trim(),
+          prompt: finalPrompt,
           style: selectedStyle,
-          placement: selectedPlacement,
-          count: 4,
+          placement,
+          count: designCount,
+          isPaid,
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Generation failed");
+      if (!res.ok) {
+        setError(data.error || "Generation failed");
+        setErrorConsoleUrl(data.code === "GCP_IAM_REQUIRED" ? data.consoleUrl ?? null : null);
+        return;
+      }
       const newDesigns = Array.isArray(data.designs) ? data.designs : [];
       setDesigns(newDesigns);
-      if (newDesigns.length > 0) setLastGeneratedPrompt(prompt.trim());
+      setSavedDesigns(new Set()); // Reset saved state on new generation
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
+      setErrorConsoleUrl(null);
     } finally {
       setLoading(false);
     }
@@ -154,16 +148,9 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
 
   return (
     <div className="studio-layout">
-      {/* ── LEFT: Prompt Panel ── */}
+      {/* ── LEFT: Wizard Panel ── */}
       <div className="prompt-panel">
-        <label>Describe Your Tattoo</label>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="e.g. A geometric snake coiling around a chrysanthemum, fine line work, minimal shading…"
-        />
-
-        <label style={{ marginTop: 24 }}>Pick a Style</label>
+        <label style={{ marginBottom: 16 }}>Pick a Style</label>
         <div className="style-grid">
           {STYLES.map((s) => (
             <button
@@ -177,52 +164,129 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
           ))}
         </div>
 
-        <label style={{ marginTop: 24 }}>Placement</label>
-        <div className="placement-row">
-          {PLACEMENTS.map((p) => (
-            <button
-              key={p}
-              className={`placement-tag ${selectedPlacement === p ? "active" : ""}`}
-              onClick={() => setSelectedPlacement(p)}
-            >
-              {p}
-            </button>
-          ))}
+        {/* Generation count selector */}
+        <div style={{ marginTop: 24 }}>
+          <label style={{ marginBottom: 8, display: "block" }}>Number of Designs</label>
+          <div className="generation-count-selector">
+            {[1, 2, 4].map((count) => (
+              <button
+                key={count}
+                type="button"
+                className={`count-btn ${designCount === count ? "active" : ""}`}
+                onClick={() => setDesignCount(count)}
+              >
+                {count}
+              </button>
+            ))}
+          </div>
+          <p className="count-hint">
+            {designCount === 1 && "Save quota — perfect for testing"}
+            {designCount === 2 && "Balanced approach"}
+            {designCount === 4 && "Full gallery — uses 4 generations"}
+          </p>
         </div>
 
-        <button
-          className="generate-btn"
-          onClick={handleGenerate}
-          disabled={loading || !prompt.trim()}
-        >
-          {loading ? (
-            <>
-              <GenerateIcon style={{ animation: "spin 0.8s linear infinite" }} />
-              Generating…
-            </>
-          ) : (
-            <>
-              <GenerateIcon />
-              Generate Designs
-            </>
-          )}
-        </button>
+        {/* High Quality (Paid Tier) toggle */}
+        <div style={{ marginTop: 24 }}>
+          <label
+            htmlFor="high-quality-toggle"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              cursor: "pointer",
+              fontSize: 14,
+              fontWeight: 500,
+            }}
+          >
+            <button
+              id="high-quality-toggle"
+              type="button"
+              role="switch"
+              aria-checked={isPaid}
+              onClick={() => setIsPaid((p) => !p)}
+              style={{
+                width: 44,
+                height: 24,
+                borderRadius: 12,
+                border: "none",
+                background: isPaid ? "linear-gradient(135deg, #c9a227 0%, #e8b45a 100%)" : "#333",
+                position: "relative",
+                cursor: "pointer",
+                transition: "background 0.2s",
+              }}
+            >
+              <span
+                style={{
+                  position: "absolute",
+                  top: 2,
+                  left: isPaid ? 22 : 2,
+                  width: 20,
+                  height: 20,
+                  borderRadius: "50%",
+                  background: "#fff",
+                  transition: "left 0.2s",
+                }}
+              />
+            </button>
+            <span style={{ color: isPaid ? "#e8b45a" : "inherit" }}>
+              High Quality {isPaid && "✨"}
+            </span>
+          </label>
+          <p style={{ marginTop: 4, fontSize: 12, color: "#888" }}>
+            {isPaid ? "Uses Vertex AI (Paid tier) for higher quality." : "Standard quality (free tier)."}
+          </p>
+        </div>
 
-        {error && <p className="studio-error">{error}</p>}
+        <div style={{ marginTop: 32 }}>
+          {loading ? (
+            <div className="wizard-loading">
+              <div className="wizard-spinner" />
+              <p>Generating {designCount} design{designCount > 1 ? 's' : ''}...</p>
+            </div>
+          ) : (
+            <ConversationalWizard
+              onComplete={handleWizardComplete}
+              selectedStyle={selectedStyle}
+              isPaid={isPaid}
+            />
+          )}
+        </div>
+
+        {error && (
+          <div className="studio-error" style={{ marginTop: 16 }}>
+            <p>{error}</p>
+            {errorConsoleUrl && (
+              <a
+                href={errorConsoleUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ marginTop: 8, display: "inline-block", fontSize: 14 }}
+              >
+                Fix in Google Cloud Console →
+              </a>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── RIGHT: Gallery ── */}
       <div className="gallery-panel">
-        <div className="gallery-grid">
+        <div className="gallery-grid" style={{ 
+          gridTemplateColumns: designCount === 1 ? '1fr' : designCount === 2 ? 'repeat(2, 1fr)' : 'repeat(2, 1fr)'
+        }}>
           {showPlaceholders
-            ? // Original placeholder cards with SVG sketches
-              PLACEHOLDER_SVGS.map((svg, i) => (
+            ? PLACEHOLDER_IMAGES.slice(0, designCount).map((imgUrl, i) => (
                 <div
                   key={i}
                   className="gallery-card"
                   style={{ background: CARD_BG[i] }}
                 >
-                  <div dangerouslySetInnerHTML={{ __html: svg }} />
+                  <img
+                    src={imgUrl}
+                    alt="Placeholder tattoo design"
+                    className="gallery-card-img"
+                  />
                   <div className="card-overlay">
                     <button
                       type="button"
@@ -234,28 +298,55 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                   </div>
                 </div>
               ))
-            : // AI-generated SVGs from the API
-              designs.map((svg, i) => (
+            : designs.map((dataUrl, i) => (
                 <div
                   key={i}
                   className="gallery-card"
                   style={{ background: CARD_BG[i % CARD_BG.length] }}
                 >
-                  <div dangerouslySetInnerHTML={{ __html: svg }} />
+                  <img
+                    src={dataUrl}
+                    alt={`Generated tattoo design ${i + 1}`}
+                    className="gallery-card-img"
+                  />
                   <div className="card-overlay">
-                    <button
-                      type="button"
-                      className="overlay-btn"
-                      onClick={() =>
-                        openBookingModal()
-                      }
-                    >
-                      <ArrowIcon /> Book This
-                    </button>
+                    <div className="card-actions">
+                      <button
+                        type="button"
+                        className="action-btn"
+                        onClick={() => toggleSave(i)}
+                        title={savedDesigns.has(i) ? "Unsave" : "Save"}
+                      >
+                        <HeartIcon filled={savedDesigns.has(i)} />
+                      </button>
+                      <button
+                        type="button"
+                        className="action-btn"
+                        onClick={() => handleDownload(dataUrl, i)}
+                        title="Download"
+                      >
+                        <DownloadIcon />
+                      </button>
+                      <button
+                        type="button"
+                        className="overlay-btn-main"
+                        onClick={openBookingModal}
+                      >
+                        <ArrowIcon /> Book This
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
         </div>
+
+        {/* Saved designs section */}
+        {savedDesigns.size > 0 && (
+          <div className="saved-designs-section">
+            <h3>Saved Designs ({savedDesigns.size})</h3>
+            <p className="saved-hint">Your saved designs are stored in this session only</p>
+          </div>
+        )}
 
         {/* Booking strip */}
         <div className="booking-strip">
@@ -270,14 +361,14 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
             <button
               type="button"
               className="btn-outline"
-              onClick={() => openBookingModal()}
+              onClick={openBookingModal}
             >
               View Calendar
             </button>
             <button
               type="button"
               className="btn-primary"
-              onClick={() => openBookingModal()}
+              onClick={openBookingModal}
             >
               Book a Session
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

@@ -524,6 +524,12 @@ section {
   width: 75%;
   height: 75%;
 }
+.gallery-card img.tattoo-sketch {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 .gallery-card .card-overlay {
   position: absolute; inset: 0;
   background: linear-gradient(180deg, transparent 50%, rgba(10,10,10,0.85) 100%);
@@ -532,6 +538,12 @@ section {
   opacity: 0; transition: opacity 0.3s;
 }
 .gallery-card:hover .card-overlay { opacity: 1; }
+.card-overlay-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
 .card-overlay .overlay-btn {
   display: inline-flex;
   align-items: center;
@@ -904,4 +916,536 @@ footer p { font-size: 12px; color: var(--grey-dim); }
 }
 @media (min-width: 1100px) {
   section { padding: 100px 24px; }
+}
+
+/* ─── ConversationalWizard Styles ────────────────────────────────────────── */
+
+.wizard-container {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding: 40px;
+  background: #141414;
+  border-radius: 14px;
+  border: 1px solid rgba(232, 180, 90, 0.15);
+  min-height: 500px;
+}
+
+/* Progress bar */
+.wizard-progress-track {
+  width: 100%;
+  height: 3px;
+  background: rgba(232, 180, 90, 0.1);
+  border-radius: 50px;
+  overflow: hidden;
+}
+
+.wizard-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #E8B45A 0%, rgba(232, 180, 90, 0.6) 100%);
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Step content */
+.wizard-step-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  animation: wizard-fade-in 0.3s ease-out;
+}
+
+@keyframes wizard-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.wizard-step {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.wizard-question {
+  font-family: var(--font-head);
+  font-size: 28px;
+  font-weight: 700;
+  font-style: italic;
+  color: #fff;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.wizard-hint {
+  font-size: 15px;
+  color: #999;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Option cards (2-column grid) */
+.wizard-options-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.wizard-option-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 20px;
+  background: #0A0A0A;
+  border: 1px solid rgba(232, 180, 90, 0.12);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+}
+
+.wizard-option-card:hover {
+  background: #1c1c1c;
+  border-color: rgba(232, 180, 90, 0.25);
+  transform: translateY(-2px);
+}
+
+.wizard-option-card.active {
+  background: rgba(232, 180, 90, 0.15);
+  border-color: #E8B45A;
+  box-shadow: 0 0 0 1px rgba(232, 180, 90, 0.3);
+}
+
+.wizard-option-label {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  font-family: var(--font-head);
+}
+
+.wizard-option-card.active .wizard-option-label {
+  color: #E8B45A;
+}
+
+.wizard-option-desc {
+  font-size: 13px;
+  color: #999;
+  line-height: 1.4;
+}
+
+/* Placement grid (3 columns, smaller buttons) */
+.wizard-placement-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.wizard-placement-btn {
+  padding: 14px 16px;
+  background: #0A0A0A;
+  border: 1px solid rgba(232, 180, 90, 0.12);
+  border-radius: 50px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #999;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.wizard-placement-btn:hover {
+  background: #1c1c1c;
+  border-color: rgba(232, 180, 90, 0.25);
+  color: #fff;
+}
+
+.wizard-placement-btn.active {
+  background: rgba(232, 180, 90, 0.15);
+  border-color: #E8B45A;
+  color: #E8B45A;
+  box-shadow: 0 0 0 1px rgba(232, 180, 90, 0.3);
+}
+
+/* Textarea (elements step) */
+.wizard-textarea {
+  width: 100%;
+  padding: 16px;
+  background: #0A0A0A;
+  border: 1px solid rgba(232, 180, 90, 0.12);
+  border-radius: 10px;
+  font-size: 15px;
+  color: #fff;
+  font-family: var(--font-body);
+  resize: vertical;
+  transition: all 0.2s ease;
+}
+
+.wizard-textarea::placeholder {
+  color: #5a5a5a;
+}
+
+.wizard-textarea:focus {
+  outline: none;
+  border-color: #E8B45A;
+  box-shadow: 0 0 0 1px rgba(232, 180, 90, 0.3);
+}
+
+/* Review box */
+.wizard-review-box {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px;
+  background: radial-gradient(ellipse at 30% 70%, #1a1205 0%, #0e0e0e 60%);
+  border: 1px solid rgba(232, 180, 90, 0.2);
+  border-radius: 10px;
+  margin-top: 8px;
+}
+
+.wizard-review-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.wizard-review-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.wizard-review-value {
+  font-size: 15px;
+  color: #E8B45A;
+  font-weight: 500;
+  text-align: right;
+  font-family: var(--font-head);
+}
+
+/* Navigation */
+.wizard-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(232, 180, 90, 0.1);
+}
+
+.wizard-btn-back,
+.wizard-btn-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: 50px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.wizard-btn-back {
+  background: transparent;
+  border: 1px solid rgba(232, 180, 90, 0.2);
+  color: #999;
+}
+
+.wizard-btn-back:hover:not(:disabled) {
+  background: rgba(232, 180, 90, 0.05);
+  border-color: rgba(232, 180, 90, 0.35);
+  color: #E8B45A;
+}
+
+.wizard-btn-back:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.wizard-btn-next {
+  background: linear-gradient(135deg, #E8B45A 0%, #d4a04e 100%);
+  color: #0A0A0A;
+  border: 1px solid transparent;
+  margin-left: auto;
+}
+
+.wizard-btn-next:hover:not(:disabled) {
+  background: linear-gradient(135deg, #f0c06a 0%, #e0b060 100%);
+  box-shadow: 0 4px 16px rgba(232, 180, 90, 0.35);
+  transform: translateY(-1px);
+}
+
+.wizard-btn-next:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.wizard-btn-next-premium {
+  background: linear-gradient(135deg, #e8b45a 0%, #c9a227 50%, #b8961e 100%);
+  box-shadow: 0 0 0 1px rgba(232, 180, 90, 0.4);
+}
+
+.wizard-btn-next-premium:hover:not(:disabled) {
+  background: linear-gradient(135deg, #f0c06a 0%, #e0b050 50%, #d4a03c 100%);
+  box-shadow: 0 4px 20px rgba(232, 180, 90, 0.5);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .wizard-container {
+    padding: 24px;
+  }
+
+  .wizard-question {
+    font-size: 22px;
+  }
+
+  .wizard-options-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wizard-placement-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .wizard-nav {
+    flex-direction: column-reverse;
+  }
+
+  .wizard-btn-next {
+    margin-left: 0;
+  }
+}
+
+/* ─── Wizard Loading State ────────────────────────────────────────────────── */
+
+.wizard-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 60px 40px;
+  background: #141414;
+  border-radius: 14px;
+  border: 1px solid rgba(232, 180, 90, 0.15);
+  min-height: 300px;
+}
+
+.wizard-spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid rgba(232, 180, 90, 0.15);
+  border-top-color: #E8B45A;
+  border-radius: 50%;
+  animation: wizard-spin 0.8s linear infinite;
+}
+
+@keyframes wizard-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.wizard-loading p {
+  font-size: 15px;
+  color: #999;
+  margin: 0;
+  font-family: var(--font-head);
+  font-style: italic;
+}
+
+/* ─── Gallery Card Image Styles ───────────────────────────────────────────── */
+
+.gallery-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+/* If your existing CSS already has .gallery-card with aspect-ratio and positioning, 
+   this is all you need. Otherwise, make sure .gallery-card has: */
+
+.gallery-card {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 14px;
+  overflow: hidden;
+  /* background gradients already applied inline */
+  transition: all 0.3s ease;
+}
+
+.gallery-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(232, 180, 90, 0.25);
+}
+
+/* ─── Generation Count Selector ──────────────────────────────────────────── */
+
+.generation-count-selector {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.count-btn {
+  flex: 1;
+  padding: 12px;
+  background: #0A0A0A;
+  border: 1px solid rgba(232, 180, 90, 0.12);
+  border-radius: 50px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #999;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: var(--font-head);
+}
+
+.count-btn:hover {
+  background: #1c1c1c;
+  border-color: rgba(232, 180, 90, 0.25);
+  color: #fff;
+}
+
+.count-btn.active {
+  background: rgba(232, 180, 90, 0.15);
+  border-color: #E8B45A;
+  color: #E8B45A;
+  box-shadow: 0 0 0 1px rgba(232, 180, 90, 0.3);
+}
+
+.count-hint {
+  font-size: 13px;
+  color: #5a5a5a;
+  margin: 0;
+  font-style: italic;
+}
+
+/* ─── Card Actions (Download, Save, Book) ────────────────────────────────── */
+
+.card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 0 20px;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  background: rgba(10, 10, 10, 0.8);
+  border: 1px solid rgba(232, 180, 90, 0.3);
+  border-radius: 50%;
+  color: #E8B45A;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(10px);
+  width: 44px;
+  height: 44px;
+}
+
+.action-btn:hover {
+  background: rgba(232, 180, 90, 0.15);
+  border-color: #E8B45A;
+  transform: scale(1.05);
+}
+
+.overlay-btn-main {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #E8B45A 0%, #d4a04e 100%);
+  border: 1px solid transparent;
+  border-radius: 50px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0A0A0A;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: var(--font-head);
+  margin-top: 8px;
+}
+
+.overlay-btn-main:hover {
+  background: linear-gradient(135deg, #f0c06a 0%, #e0b060 100%);
+  box-shadow: 0 4px 16px rgba(232, 180, 90, 0.4);
+  transform: translateY(-2px);
+}
+
+/* Update card-overlay to use flexbox for centering */
+.card-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 10, 10, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  border-radius: inherit;
+}
+
+.gallery-card:hover .card-overlay {
+  opacity: 1;
+}
+
+/* ─── Saved Designs Section ──────────────────────────────────────────────── */
+
+.saved-designs-section {
+  margin-top: 32px;
+  padding: 24px;
+  background: rgba(232, 180, 90, 0.05);
+  border: 1px solid rgba(232, 180, 90, 0.15);
+  border-radius: 14px;
+}
+
+.saved-designs-section h3 {
+  font-family: var(--font-head);
+  font-size: 18px;
+  font-weight: 700;
+  color: #E8B45A;
+  margin: 0 0 8px 0;
+}
+
+.saved-hint {
+  font-size: 13px;
+  color: #999;
+  margin: 0;
+}
+
+/* ─── Responsive Adjustments ─────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .card-actions {
+    flex-direction: row;
+    justify-content: center;
+    padding: 0 12px;
+  }
+
+  .overlay-btn-main {
+    flex: 1;
+    margin-top: 0;
+  }
+
+  .action-btn {
+    width: 40px;
+    height: 40px;
+  }
 }
