@@ -10,6 +10,7 @@ const STORAGE_BUCKETS = ["reference-images", "generated-designs"] as const;
  * Fetch total bytes used by reference-images and generated-designs via get_storage_usage RPC.
  * When studioId is provided, only counts objects with metadata.studio_id = studioId (scoped).
  * When omitted, returns global total. Used by AdminStorageMeter and studio dashboard.
+ * If the RPC is not deployed (migration 004/006 not run), returns 0 without throwing.
  */
 export async function getStorageUsage(studioId?: string | null): Promise<{ totalBytes: number }> {
   try {
@@ -19,13 +20,18 @@ export async function getStorageUsage(studioId?: string | null): Promise<{ total
       target_studio_id: studioId ?? null,
     });
     if (error) {
-      console.error("[admin] get_storage_usage RPC error:", error);
+      // RPC may be missing if supabase migrations 004/006 were not applied; fail silently so admin still loads
+      if (process.env.NODE_ENV === "development" && (error.message || error.code)) {
+        console.warn("[admin] get_storage_usage RPC:", error.message || error.code, "— run migrations 004 & 006 if you need the storage meter.");
+      }
       return { totalBytes: 0 };
     }
     const totalBytes = typeof data === "number" ? data : Number(data ?? 0);
     return { totalBytes: Number.isFinite(totalBytes) ? totalBytes : 0 };
   } catch (e) {
-    console.error("[admin] getStorageUsage error:", e);
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[admin] getStorageUsage:", e instanceof Error ? e.message : "RPC failed");
+    }
     return { totalBytes: 0 };
   }
 }
@@ -298,12 +304,14 @@ export async function purgeOldDesigns(
 export async function getProfilesForStudioAdmin(search?: string): Promise<{ id: string; email: string | null }[]> {
   const supabase = await createClient();
   const { data: { user: authUser } } = await supabase.auth.getUser();
-  if (!authUser?.email) return [];
+  if (!authUser?.id) return [];
 
-  const admin = await prisma.user.findFirst({
-    where: { email: authUser.email, isAdmin: true },
+  const profile = await prisma.profiles.findUnique({
+    where: { id: authUser.id },
+    select: { is_admin: true, role: true },
   });
-  if (!admin) return [];
+  const isSuperAdmin = profile?.is_admin || profile?.role === "SUPER_ADMIN";
+  if (!isSuperAdmin) return [];
 
   const where = search?.trim()
     ? { users: { email: { contains: search.trim(), mode: "insensitive" as const } } }
@@ -321,6 +329,23 @@ export async function getProfilesForStudioAdmin(search?: string): Promise<{ id: 
 }
 
 /**
+ * Return current user's profile if they are a Super Admin (for "Use my account" in Create Studio).
+ */
+export async function getCurrentSuperAdminProfile(): Promise<{ id: string; email: string | null } | null> {
+  const supabase = await createClient();
+  const { data: { user: authUser } } = await supabase.auth.getUser();
+  if (!authUser?.id) return null;
+
+  const profile = await prisma.profiles.findUnique({
+    where: { id: authUser.id },
+    select: { id: true, is_admin: true, role: true, users: { select: { email: true } } },
+  });
+  const isSuperAdmin = profile?.is_admin || profile?.role === "SUPER_ADMIN";
+  if (!profile || !isSuperAdmin) return null;
+  return { id: profile.id, email: profile.users?.email ?? null };
+}
+
+/**
  * Super Admin: Create a studio and assign a profile as STUDIO_ADMIN.
  * Creates the Studio, then sets profile.role = 'STUDIO_ADMIN' and profile.studio_id = new studio id.
  */
@@ -332,12 +357,14 @@ export async function createStudioWithAdmin(
   try {
     const supabase = await createClient();
     const { data: { user: authUser } } = await supabase.auth.getUser();
-    if (!authUser?.email) return { error: "Unauthorized" };
+    if (!authUser?.id) return { error: "Unauthorized" };
 
-    const admin = await prisma.user.findFirst({
-      where: { email: authUser.email, isAdmin: true },
+    const adminProfile = await prisma.profiles.findUnique({
+      where: { id: authUser.id },
+      select: { is_admin: true, role: true },
     });
-    if (!admin) return { error: "Forbidden" };
+    const isSuperAdmin = adminProfile?.is_admin || adminProfile?.role === "SUPER_ADMIN";
+    if (!adminProfile || !isSuperAdmin) return { error: "Forbidden" };
 
     const trimmedName = (name ?? "").trim();
     const trimmedSlug = (slug ?? "").trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || "studio";

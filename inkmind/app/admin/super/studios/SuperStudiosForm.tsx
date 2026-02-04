@@ -6,7 +6,12 @@ import { createStudioWithAdmin, getProfilesForStudioAdmin } from "../../actions"
 
 type ProfileOption = { id: string; email: string | null };
 
-export default function SuperStudiosForm() {
+type SuperStudiosFormProps = {
+  /** When present, show "Use my account" so Super Admin can create a studio and link their own profile. */
+  currentUserProfile?: ProfileOption;
+};
+
+export default function SuperStudiosForm({ currentUserProfile }: SuperStudiosFormProps) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -130,6 +135,19 @@ export default function SuperStudiosForm() {
         <label className="block text-xs font-medium text-[var(--grey)] mb-1">
           Assign Admin (search by email)
         </label>
+        {currentUserProfile && (
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedProfile(currentUserProfile);
+              setProfileSearch("");
+              setDropdownOpen(false);
+            }}
+            className="mb-2 w-full rounded-[var(--radius)] border border-[var(--gold)]/40 bg-[var(--gold-dim)] px-3 py-2 text-sm font-medium text-[var(--gold)] hover:bg-[var(--gold-glow)] hover:text-[var(--white)] transition"
+          >
+            Use my account ({currentUserProfile.email ?? "current user"})
+          </button>
+        )}
         <input
           type="text"
           value={selectedProfile ? selectedProfile.email ?? "" : profileSearch}

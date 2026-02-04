@@ -62,6 +62,7 @@ export default async function ShareDesignPage({ params }: PageProps) {
 
   const imageUrl = design.image_url ?? null;
   const referenceImageUrl = design.reference_image_url ?? null;
+  const finalImageUrl = design.final_image_url ?? null;
   const prompt = design.prompt ?? "";
   const creatorEmail = design.profiles?.users?.email ?? null;
 
@@ -106,6 +107,7 @@ export default async function ShareDesignPage({ params }: PageProps) {
           designId={id}
           imageUrl={imageUrl}
           referenceImageUrl={referenceImageUrl}
+          finalImageUrl={finalImageUrl}
           parentImageUrl={historyData?.ancestors?.length ? historyData.ancestors[historyData.ancestors.length - 1].image_url ?? null : null}
           prompt={prompt}
           creatorEmail={creatorEmail}

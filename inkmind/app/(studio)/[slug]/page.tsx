@@ -4,6 +4,7 @@ import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import { getStorageUsage } from "@/app/admin/actions";
 import { STORAGE_LIMIT_BYTES } from "@/app/admin/constants";
+import StudioCreatorSlot from "./StudioCreatorSlot";
 import StudioAdminDashboard from "./StudioAdminDashboard";
 
 type Props = {
@@ -76,6 +77,7 @@ export default async function StudioAdminPage({ params }: Props) {
     prompt: d.prompt ?? "",
     imageUrl: d.image_url ?? null,
     referenceImageUrl: d.reference_image_url ?? null,
+    finalImageUrl: d.final_image_url ?? null,
     status: d.status,
     createdAt: d.created_at.toISOString(),
     userEmail: d.profiles?.users?.email ?? null,
@@ -88,13 +90,16 @@ export default async function StudioAdminPage({ params }: Props) {
   }));
 
   return (
-    <StudioAdminDashboard
-      studio={{ id: studio.id, name: studio.name, slug: studio.slug }}
-      designs={designItems}
-      users={userList}
-      storageEstimateBytes={storageEstimateBytes}
-      storageLimitBytes={STORAGE_LIMIT_BYTES}
-      storagePercent={storagePercent}
-    />
+    <>
+      <StudioCreatorSlot studioSlug={studio.slug} />
+      <StudioAdminDashboard
+        studio={{ id: studio.id, name: studio.name, slug: studio.slug }}
+        designs={designItems}
+        users={userList}
+        storageEstimateBytes={storageEstimateBytes}
+        storageLimitBytes={STORAGE_LIMIT_BYTES}
+        storagePercent={storagePercent}
+      />
+    </>
   );
 }

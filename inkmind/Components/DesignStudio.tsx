@@ -13,6 +13,8 @@ import { TATTOO_STYLES } from "@/lib/tattoo-styles";
 
 export type DesignStudioProps = {
   onOpenBooking?: () => void;
+  /** When set (e.g. on studio slug page), generations are saved to this studio. */
+  studioSlug?: string | null;
 };
 
 // ─── Saved Design Library (localStorage) ─────────────────────────────────────
@@ -337,6 +339,33 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
       });
   }, [searchParams, router]);
 
+  // Load reference from "Edit this design" (?edit=id) — studio workbench design list
+  useEffect(() => {
+    const editId = searchParams.get("edit");
+    if (!editId || editLoadedRef.current === editId) return;
+    editLoadedRef.current = editId;
+    fetch(`/api/designs/${editId}/public`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { imageUrl?: string | null; prompt?: string | null } | null) => {
+        if (!data) return;
+        if (data.imageUrl) setRefImage(data.imageUrl);
+        setIsManualMode(true);
+        setManualPrompt(data.prompt ? `Modify: ${data.prompt}` : "e.g. Add more shading, make lines thicker");
+        setTimeout(() => {
+          document.getElementById("studio")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 100);
+        const next = new URLSearchParams(searchParams.toString());
+        next.delete("edit");
+        const base = typeof window !== "undefined" ? window.location.pathname : "/";
+        const path = next.toString() ? `${base}?${next.toString()}` : base;
+        router.replace(path, { scroll: false });
+      })
+      .catch(() => {})
+      .finally(() => {
+        editLoadedRef.current = null;
+      });
+  }, [searchParams, router]);
+
   // Download a design with descriptive filename: Inkmind-Tattoo-[prompt-keywords].png
   // HTTP(S) URLs go through /api/download (watermark + force download); data URLs stay client-side
   const handleDownload = (dataUrl: string, index: number) => {
@@ -467,6 +496,7 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
           placement,
           count: designCount,
           isPaid,
+          ...(studioSlug && { studioSlug }),
           ...(refUrl && { referenceImageUrl: refUrl }),
           ...(refData && { referenceImage: refData }),
           ...(hasReference && { referenceStrength }),

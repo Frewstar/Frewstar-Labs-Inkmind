@@ -8,6 +8,8 @@ type ShareViewProps = {
   designId: string;
   imageUrl: string | null;
   referenceImageUrl: string | null;
+  /** Artist-uploaded final render (Procreate/Photoshop); shown as "The Finished Design". */
+  finalImageUrl?: string | null;
   /** Direct parent image (for Before/After slider when viewing an iteration). */
   parentImageUrl?: string | null;
   prompt: string;
@@ -19,6 +21,7 @@ export default function ShareView({
   designId,
   imageUrl,
   referenceImageUrl,
+  finalImageUrl,
   parentImageUrl,
   prompt,
   creatorEmail,
@@ -28,8 +31,9 @@ export default function ShareView({
   const hasReference = !!referenceImageUrl && !!imageUrl;
   const hasParentForCompare = !!parentImageUrl && !!imageUrl;
   const hasHistory = historyChain.length > 1;
+  const hasFinal = !!finalImageUrl;
 
-  if (!imageUrl) {
+  if (!imageUrl && !finalImageUrl) {
     return (
       <div className="rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] p-8 text-center text-[var(--grey)]">
         No image available for this design.
@@ -39,8 +43,34 @@ export default function ShareView({
 
   return (
     <div className="space-y-6">
-      {/* High-resolution tattoo image / Before–After area */}
+      {/* The Finished Design — artist upload (when present) */}
+      {hasFinal && (
+        <div className="rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] overflow-hidden">
+          <h2 className="px-4 py-3 text-sm font-semibold text-[var(--white)] border-b border-white/10">
+            The Finished Design
+          </h2>
+          <div className="relative bg-[var(--bg)] p-4 flex justify-center">
+            <div className="tattoo-watermark-wrap">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={finalImageUrl!}
+                alt="Finished design"
+                className="max-h-[70vh] w-auto max-w-full object-contain"
+              />
+              <span className="tattoo-watermark" aria-hidden>InkMind</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* The Evolution — AI concepts / iterations */}
+      {imageUrl && (
       <div className="rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] overflow-hidden">
+        {hasFinal && (
+          <h2 className="px-4 py-3 text-sm font-semibold text-[var(--white)] border-b border-white/10">
+            The Evolution
+          </h2>
+        )}
         {hasReference && (
           <div className="flex border-b border-white/10">
             <button
@@ -148,6 +178,7 @@ export default function ShareView({
           )}
         </div>
       </div>
+      )}
 
       {/* Prompt & optional creator */}
       <div className="rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] p-4">
@@ -160,7 +191,6 @@ export default function ShareView({
             Shared by {creatorEmail}
           </p>
         )}
-      </div>
       </div>
     </div>
   );

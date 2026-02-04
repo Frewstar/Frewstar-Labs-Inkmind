@@ -1,4 +1,5 @@
 import prisma from "@/lib/db";
+import { getCurrentSuperAdminProfile } from "@/app/admin/actions";
 import SuperStudiosForm from "./SuperStudiosForm";
 import Link from "next/link";
 
@@ -14,7 +15,7 @@ export const metadata = {
 };
 
 export default async function SuperStudiosPage() {
-  const [studios, totalStudios, totalDesigns, topStudio] = await Promise.all([
+  const [studios, totalStudios, totalDesigns, topStudio, currentUserProfile] = await Promise.all([
     prisma.studios.findMany({
       orderBy: { name: "asc" },
       include: {
@@ -34,6 +35,7 @@ export default async function SuperStudiosPage() {
       orderBy: { designs: { _count: "desc" } },
       select: { name: true, slug: true, _count: { select: { designs: true } } },
     }),
+    getCurrentSuperAdminProfile(),
   ]);
 
   const rows = studios.map((s) => {
@@ -114,7 +116,7 @@ export default async function SuperStudiosPage() {
         </div>
       </section>
 
-      <SuperStudiosForm />
+      <SuperStudiosForm currentUserProfile={currentUserProfile ?? undefined} />
 
       <div className="rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] overflow-hidden">
         <h2 className="px-4 py-3 text-sm font-semibold text-[var(--white)] border-b border-white/10">

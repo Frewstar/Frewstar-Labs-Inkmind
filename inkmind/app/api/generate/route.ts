@@ -31,6 +31,8 @@ interface GenerateRequest {
   placement: string;
   count?: number;
   isPaid?: boolean;
+  /** If provided, save designs to this studio (by slug) instead of default. */
+  studioSlug?: string;
   /** If provided, fetch this design's image_url and use it as the AI reference (when no referenceImage/referenceImageUrl). */
   parent_id?: string;
   referenceImage?: string; // base64 (with or without data URL prefix)
@@ -102,6 +104,7 @@ export async function POST(req: NextRequest) {
       placement,
       count = 4,
       isPaid = false,
+      studioSlug: requestedStudioSlug,
       parent_id: parentId,
       referenceImage,
       referenceImageUrl,
@@ -226,14 +229,14 @@ export async function POST(req: NextRequest) {
     } else if (authUser?.id) {
       try {
         const supabase = await createClient();
-        const defaultStudio = await getOrCreateDefaultStudio();
+        const targetStudio = await resolveStudioForSave(requestedStudioSlug);
         const profileId = authUser.id;
 
         const promptForDb = [prompt, style, placement].filter(Boolean).join(" — ") || fullPrompt;
         const uploadedUrls: string[] = [];
 
         for (let i = 0; i < images.length; i++) {
-          const imageUrl = await uploadGeneratedImage(supabase, profileId, images[i], defaultStudio.id);
+          const imageUrl = await uploadGeneratedImage(supabase, profileId, images[i], targetStudio.id);
           if (!imageUrl) {
             uploadedUrls.push(images[i]); // fallback to base64 if upload failed
             continue;
@@ -243,7 +246,7 @@ export async function POST(req: NextRequest) {
           const design = await prisma.designs.create({
             data: {
               profile_id: profileId,
-              studio_id: defaultStudio.id,
+              studio_id: targetStudio.id,
               image_url: imageUrl,
               prompt: promptForDb,
               reference_image_url: referenceUrl ?? null,
@@ -346,14 +349,26 @@ function parseReferenceImage(ref: string): { data: string; mimeType: string } {
   return { data: ref, mimeType: "image/png" };
 }
 
-/** Get or create the default studio for saving designs from the generate API. */
-async function getOrCreateDefaultStudio(): Promise<{ id: string }> {
+/** Resolve studio for saving: use requested slug if provided and exists, else default. */
+async function resolveStudioForSave(requestedSlug?: string | null): Promise<{ id: string }> {
+  const slug = (requestedSlug ?? "").trim() || DEFAULT_STUDIO_SLUG;
   let studio = await prisma.studios.findUnique({
-    where: { slug: DEFAULT_STUDIO_SLUG },
+    where: { slug },
     select: { id: true },
   });
-  if (!studio) {
+  if (!studio && slug === DEFAULT_STUDIO_SLUG) {
     studio = await prisma.studios.create({
+      data: { slug: DEFAULT_STUDIO_SLUG, name: "InkMind Default" },
+      select: { id: true },
+    });
+  }
+  if (!studio) {
+    const fallback = await prisma.studios.findUnique({
+      where: { slug: DEFAULT_STUDIO_SLUG },
+      select: { id: true },
+    });
+    if (fallback) return fallback;
+    return prisma.studios.create({
       data: { slug: DEFAULT_STUDIO_SLUG, name: "InkMind Default" },
       select: { id: true },
     });

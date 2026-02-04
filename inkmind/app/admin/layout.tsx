@@ -12,15 +12,17 @@ export default async function AdminLayout({
   const supabase = await createClient();
   const { data: { user: authUser } } = await supabase.auth.getUser();
 
-  if (!authUser?.email) {
+  if (!authUser?.id) {
     redirect("/");
   }
 
-  const prismaUser = await prisma.user.findUnique({
-    where: { email: authUser.email },
+  const profile = await prisma.profiles.findUnique({
+    where: { id: authUser.id },
+    select: { id: true, is_admin: true, role: true },
   });
 
-  if (!prismaUser || !prismaUser.isAdmin) {
+  const isAdmin = profile?.is_admin || profile?.role === "SUPER_ADMIN";
+  if (!profile || !isAdmin) {
     redirect("/");
   }
 

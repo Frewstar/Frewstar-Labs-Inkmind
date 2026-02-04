@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 const BYTES_PER_MB = 1_048_576;
 
@@ -15,6 +16,7 @@ type DesignItem = {
   prompt: string;
   imageUrl: string | null;
   referenceImageUrl: string | null;
+  finalImageUrl: string | null;
   status: string;
   createdAt: string;
   userEmail: string | null;
@@ -134,9 +136,10 @@ export default function StudioAdminDashboard({
                   {designs.slice(0, 50).map((d) => (
                     <li key={d.id} className="flex items-center gap-4 p-4 hover:bg-white/5">
                       {d.imageUrl && (
-                        <a
-                          href={`/api/download?url=${encodeURIComponent(d.imageUrl)}&filename=tattoo-design.png`}
-                          className="shrink-0 w-14 h-14 rounded-[var(--radius)] overflow-hidden border border-white/10 bg-[var(--bg)] block"
+                        <Link
+                          href={`/${studio.slug}?edit=${d.id}`}
+                          className="shrink-0 w-14 h-14 rounded-[var(--radius)] overflow-hidden border border-white/10 bg-[var(--bg)] block focus:ring-2 ring-[var(--gold)]"
+                          title="Edit: load into Reference slot"
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
@@ -146,7 +149,7 @@ export default function StudioAdminDashboard({
                             width={56}
                             height={56}
                           />
-                        </a>
+                        </Link>
                       )}
                       <div className="min-w-0 flex-1">
                         <p className="text-sm text-[var(--white)]/90 truncate" title={d.prompt}>
@@ -156,6 +159,54 @@ export default function StudioAdminDashboard({
                           {d.userEmail ?? "Unknown"} · {d.status}
                         </p>
                       </div>
+                      {d.imageUrl && (
+                        <a
+                          href={`/api/download?url=${encodeURIComponent(d.imageUrl)}&filename=tattoo-design.png`}
+                          className="shrink-0 text-xs text-[var(--grey)] hover:text-[var(--gold)] transition"
+                        >
+                          Download
+                        </a>
+                      )}
+                      <span className="shrink-0 flex items-center gap-2">
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          className="hidden"
+                          ref={(el) => {
+                            fileInputRefs.current[d.id] = el;
+                          }}
+                          onChange={async (e) => {
+                            const f = e.target.files?.[0];
+                            if (!f) return;
+                            setUploadingId(d.id);
+                            try {
+                              const form = new FormData();
+                              form.append("file", f);
+                              const res = await fetch(`/api/designs/${d.id}/final-image`, {
+                                method: "POST",
+                                body: form,
+                              });
+                              const data = await res.json();
+                              if (!res.ok) throw new Error(data.message || data.error || "Upload failed");
+                              router.refresh();
+                            } catch (err) {
+                              alert(err instanceof Error ? err.message : "Upload failed");
+                            } finally {
+                              setUploadingId(null);
+                              e.target.value = "";
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => fileInputRefs.current[d.id]?.click()}
+                          disabled={!!uploadingId}
+                          className="shrink-0 text-xs text-[var(--grey)] hover:text-[var(--gold)] transition disabled:opacity-50"
+                          title="Upload final render (JPG/PNG) to this design"
+                        >
+                          {uploadingId === d.id ? "Uploading…" : d.finalImageUrl ? "Replace final" : "Upload Final Drawing"}
+                        </button>
+                      </span>
                     </li>
                   ))}
                 </ul>
