@@ -1,6 +1,7 @@
 import { createClient } from "@/utils/supabase/server";
 import prisma from "@/lib/db";
 import AdminDesignRow from "./AdminDesignRow";
+import AdminMaintenance from "./AdminMaintenance";
 
 export const metadata = {
   title: "Admin | InkMind",
@@ -42,6 +43,10 @@ export default async function AdminPage() {
       <p className="mt-2 text-[var(--grey)]">
         Designs for studios you own. Mark deposit received to unlock high-res download for the client.
       </p>
+
+      <section className="mt-8">
+        <AdminMaintenance />
+      </section>
 
       <div className="mt-8 overflow-x-auto rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)]">
         {designs.length === 0 ? (

@@ -2,6 +2,7 @@ import { createClient } from "@/utils/supabase/server";
 import prisma from "@/lib/db";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import AdminStorageMeter from "./AdminStorageMeter";
 
 export default async function AdminLayout({
   children,
@@ -43,6 +44,7 @@ export default async function AdminLayout({
           >
             Admin
           </Link>
+          <AdminStorageMeter />
           <nav className="flex flex-col gap-1">
             <p className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--grey)]">
               Studio Management
@@ -58,6 +60,21 @@ export default async function AdminLayout({
               className="rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--white)]/90 hover:bg-white/5 hover:text-[var(--gold)] transition"
             >
               Client Bookings
+            </Link>
+            <Link
+              href="/admin/designs"
+              className="rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--white)]/90 hover:bg-white/5 hover:text-[var(--gold)] transition"
+            >
+              All Designs
+            </Link>
+            <p className="mb-2 mt-4 text-xs font-medium uppercase tracking-wider text-[var(--grey)]">
+              Super Admin
+            </p>
+            <Link
+              href="/admin/super/studios"
+              className="rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--white)]/90 hover:bg-white/5 hover:text-[var(--gold)] transition"
+            >
+              Studio Management
             </Link>
           </nav>
           <Link

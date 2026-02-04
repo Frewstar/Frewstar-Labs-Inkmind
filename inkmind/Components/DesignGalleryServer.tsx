@@ -14,36 +14,29 @@ export default async function DesignGalleryServer() {
     return <DesignGalleryClient designs={[]} unauthenticated />;
   }
 
-  const prismaUser = await prisma.user.findFirst({
-    where: {
-      OR: [{ authId: authUser.id }, { email: authUser.email ?? undefined }],
-    },
-  });
-
-  if (!prismaUser) {
-    return <DesignGalleryClient designs={[]} noAccount />;
-  }
-
-  const rows = await prisma.design.findMany({
-    where: { clientId: prismaUser.id },
-    orderBy: { createdAt: "desc" },
+  const rows = await prisma.designs.findMany({
+    where: { profile_id: authUser.id },
+    orderBy: { created_at: "desc" },
     select: {
       id: true,
       prompt: true,
-      imageUrl: true,
+      image_url: true,
+      reference_image_url: true,
       status: true,
-      createdAt: true,
-      isPaid: true,
+      is_starred: true,
+      created_at: true,
     },
   });
 
   const designs = rows.map((d) => ({
     id: d.id,
-    prompt: d.prompt,
-    imageUrl: d.imageUrl,
+    prompt: d.prompt ?? "",
+    imageUrl: d.image_url ?? "",
+    referenceImageUrl: d.reference_image_url ?? null,
     status: d.status,
-    createdAt: d.createdAt.toISOString(),
-    isPaid: d.isPaid,
+    isStarred: d.is_starred,
+    createdAt: d.created_at.toISOString(),
+    isPaid: false,
   }));
 
   return <DesignGalleryClient designs={designs} />;

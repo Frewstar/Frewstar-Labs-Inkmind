@@ -32,9 +32,7 @@ export default function AdminDesignRow({ design }: { design: DesignRow }) {
       </td>
       <td className="py-3 pr-4">
         <a
-          href={design.imageUrl}
-          target="_blank"
-          rel="noopener noreferrer"
+          href={`/api/download?url=${encodeURIComponent(design.imageUrl)}&filename=tattoo-design.png`}
           className="inline-block w-16 h-16 rounded-[var(--radius)] overflow-hidden border border-white/10 bg-[var(--bg)]"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}

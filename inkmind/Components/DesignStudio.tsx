@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import BookingModal from "./BookingModal";
 import ConversationalWizard from "./ConversationalWizard";
 import ImageLightbox from "./ImageLightbox";
-import { getRandomTattooPhotos } from "@/lib/tattoo-photos";
-import { createClient } from "@/utils/supabase/client";
+import GenerationLoader from "./GenerationLoader";
+import HistorySkeleton from "./HistorySkeleton";
+import { getFirstTattooPhotos, getRandomTattooPhotos } from "@/lib/tattoo-photos";
+import { promptToDownloadFilename } from "@/lib/download-filename";
+import { TATTOO_STYLES } from "@/lib/tattoo-styles";
 
 export type DesignStudioProps = {
   onOpenBooking?: () => void;
@@ -15,6 +18,17 @@ export type DesignStudioProps = {
 // ─── Saved Design Library (localStorage) ─────────────────────────────────────
 
 const SAVED_DESIGNS_KEY = "inkmind_saved_designs_v1";
+const LAST_GENERATION_KEY = "inkmind_last_generation_v1";
+const COLLECTIONS_KEY = "inkmind_collections_v1";
+
+const DEFAULT_GALLERIES: { id: string; name: string }[] = [
+  { id: "general", name: "General" },
+  { id: "arm", name: "Arm tattoos" },
+  { id: "back", name: "Back tattoos" },
+  { id: "viking", name: "Viking tattoos" },
+];
+
+export type Gallery = { id: string; name: string };
 
 export type SavedDesign = {
   id: string;
@@ -22,6 +36,7 @@ export type SavedDesign = {
   style: string;
   image: string;
   date: string;
+  collectionId?: string | null;
 };
 
 function loadDesignLibrary(): SavedDesign[] {
@@ -30,7 +45,11 @@ function loadDesignLibrary(): SavedDesign[] {
     const raw = localStorage.getItem(SAVED_DESIGNS_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    const arr = Array.isArray(parsed) ? parsed : [];
+    return arr.map((item: SavedDesign) => ({
+      ...item,
+      collectionId: item.collectionId ?? null,
+    }));
   } catch {
     return [];
   }
@@ -40,21 +59,65 @@ function saveDesignLibrary(items: SavedDesign[]) {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(SAVED_DESIGNS_KEY, JSON.stringify(items));
+  } catch (e) {
+    // QuotaExceededError when images are large (e.g. base64); don't overwrite existing data
+    if (e instanceof DOMException && e.name === "QuotaExceededError") {
+      console.warn("[InkMind] Design library too large to save; use Download on favorites to keep them.");
+    }
+  }
+}
+
+function loadCollections(): Gallery[] {
+  if (typeof window === "undefined") return DEFAULT_GALLERIES;
+  try {
+    const raw = localStorage.getItem(COLLECTIONS_KEY);
+    if (!raw) return DEFAULT_GALLERIES;
+    const parsed = JSON.parse(raw);
+    const arr = Array.isArray(parsed) ? parsed : [];
+    return arr.length > 0 ? arr : DEFAULT_GALLERIES;
+  } catch {
+    return DEFAULT_GALLERIES;
+  }
+}
+
+function saveCollections(collections: Gallery[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(COLLECTIONS_KEY, JSON.stringify(collections));
   } catch {
     // ignore
   }
 }
 
+type LastGeneration = { designs: string[]; prompt: string; style: string };
+
+function loadLastGeneration(): LastGeneration | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(LAST_GENERATION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as LastGeneration).designs)) return null;
+    const { designs, prompt, style } = parsed as LastGeneration;
+    if (designs.length === 0) return null;
+    return { designs, prompt: String(prompt ?? ""), style: String(style ?? "") };
+  } catch {
+    return null;
+  }
+}
+
+function saveLastGeneration(designs: string[], prompt: string, style: string) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(LAST_GENERATION_KEY, JSON.stringify({ designs, prompt, style }));
+  } catch {
+    // quota or parse error — ignore
+  }
+}
+
 // ─── DATA ────────────────────────────────────────────────────────────────────
 
-const STYLES = [
-  { id: "fine-line",   label: "Fine Line",   icon: "✦" },
-  { id: "geometric",  label: "Geometric",   icon: "◎" },
-  { id: "blackwork",  label: "Blackwork",   icon: "⟡" },
-  { id: "watercolor", label: "Watercolor",  icon: "❋" },
-  { id: "traditional",label: "Traditional", icon: "⊕" },
-  { id: "minimalist", label: "Minimalist",  icon: "◇" },
-];
+// Artist style presets (keywords injected in app/api/generate)
 
 const CARD_BG = [
   "radial-gradient(ellipse at 30% 70%, #1a1205 0%, #0e0e0e 60%)",
@@ -94,6 +157,16 @@ function DownloadIcon() {
   );
 }
 
+function RefIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}>
+      <rect x="3" y="3" width="14" height="14" rx="2" />
+      <path d="M21 15v2a2 2 0 0 1-2 2h-5" />
+      <path d="M15 9l3 3 3-3" />
+    </svg>
+  );
+}
+
 function HeartIcon({ filled }: { filled: boolean }) {
   return (
     <svg 
@@ -128,18 +201,30 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
   const [lastWizardPrompt, setLastWizardPrompt] = useState(""); // Pre-fill when ejecting from wizard
   const [lastWizardPlacement, setLastWizardPlacement] = useState<string | null>(null);
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
-  const [designLibrary, setDesignLibrary] = useState<SavedDesign[]>(loadDesignLibrary);
+  const [designLibrary, setDesignLibrary] = useState<SavedDesign[]>([]);
+  const [collections, setCollections] = useState<Gallery[]>([]);
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string>("general");
+  const [filterCollectionId, setFilterCollectionId] = useState<string | null>(null);
   const [lastGenerationPrompt, setLastGenerationPrompt] = useState("");
   const [lastGenerationStyle, setLastGenerationStyle] = useState(selectedStyle);
   const [savedInSession, setSavedInSession] = useState<Set<number>>(new Set()); // which current gallery indices were saved this session
   const [refImage, setRefImage] = useState<string | null>(null);
+  /** When ref was loaded from "Branch off" (?parent_id=), send this so the new design gets parent_id saved. */
+  const [branchFromDesignId, setBranchFromDesignId] = useState<string | null>(null);
+  /** Img2Img strength 0.1–1.0: lower = stay closer to reference, higher = more freedom. Only used when refImage is set. */
+  const [referenceStrength, setReferenceStrength] = useState(0.5);
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
   const [loadingStatusIndex, setLoadingStatusIndex] = useState(0);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
-  const [placeholderImages, setPlaceholderImages] = useState<string[]>(() => getRandomTattooPhotos(6));
+  const [placeholderImages, setPlaceholderImages] = useState<string[]>(() => getFirstTattooPhotos(6));
+  const [hasMounted, setHasMounted] = useState(false);
+  const [newGalleryName, setNewGalleryName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const refFileRef = useRef<File | null>(null);
+  const promptSectionRef = useRef<HTMLDivElement>(null);
   const tweakLoadedRef = useRef<string | null>(null);
+  const parentIdLoadedRef = useRef<string | null>(null);
+  const hasRestoredLibraryRef = useRef(false);
 
   const useExternalBooking = !!externalOpenBooking;
   const openBookingModal = useExternalBooking ? externalOpenBooking! : () => setBookingModalOpen(true);
@@ -147,10 +232,22 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
 
   const showPlaceholders = designs.length === 0;
 
-  // Persist design library to localStorage when it changes
+  // Filter design library by selected gallery (null = All)
+  const filteredDesignLibrary = useMemo(() => {
+    if (filterCollectionId == null) return designLibrary;
+    return designLibrary.filter(
+      (d) => d.collectionId === filterCollectionId || (d.collectionId == null && filterCollectionId === "general")
+    );
+  }, [designLibrary, filterCollectionId]);
+
+  // Persist design library when it changes — skip until after restore so we don't overwrite with [] on load or in Strict Mode
   useEffect(() => {
+    if (!hasRestoredLibraryRef.current) return;
     saveDesignLibrary(designLibrary);
   }, [designLibrary]);
+  useEffect(() => {
+    if (collections.length > 0) saveCollections(collections);
+  }, [collections]);
 
   // Status stepper: cycle through loading statuses every 7 seconds
   useEffect(() => {
@@ -164,14 +261,33 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
     return () => clearInterval(interval);
   }, [loading]);
 
-  // Refresh placeholder images every 60 seconds when showing placeholders
+  // After mount: restore design library, last generation; show skeleton briefly. Reset ref on unmount so Strict Mode doesn't wipe localStorage.
+  const SKELETON_MIN_MS = 500;
   useEffect(() => {
-    if (!showPlaceholders) return;
+    setDesignLibrary(loadDesignLibrary());
+    hasRestoredLibraryRef.current = true;
+    const last = loadLastGeneration();
+    if (last?.designs?.length) {
+      setDesigns(last.designs);
+      setLastGenerationPrompt(last.prompt);
+      setLastGenerationStyle(last.style);
+    }
+    const t = setTimeout(() => setHasMounted(true), SKELETON_MIN_MS);
+    return () => {
+      clearTimeout(t);
+      hasRestoredLibraryRef.current = false;
+    };
+  }, []);
+
+  // Refresh placeholder images every 60 seconds when showing placeholders (client-only)
+  useEffect(() => {
+    if (!hasMounted || !showPlaceholders) return;
+    setPlaceholderImages(getRandomTattooPhotos(6));
     const interval = setInterval(() => {
       setPlaceholderImages(getRandomTattooPhotos(6));
     }, 60000);
     return () => clearInterval(interval);
-  }, [showPlaceholders]);
+  }, [hasMounted, showPlaceholders]);
 
   // Load design from "Tweak this Design" (?tweak=id) — My Designs gallery
   useEffect(() => {
@@ -197,17 +313,49 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
       });
   }, [searchParams, router]);
 
-  // Download a design
+  // Load reference from "Branch off from here" (?parent_id=id) — share history sidebar
+  useEffect(() => {
+    const parentId = searchParams.get("parent_id");
+    if (!parentId || parentIdLoadedRef.current === parentId) return;
+    parentIdLoadedRef.current = parentId;
+    fetch(`/api/designs/${parentId}/public`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { imageUrl?: string | null; prompt?: string | null } | null) => {
+        if (!data) return;
+        if (data.imageUrl) setRefImage(data.imageUrl);
+        setIsManualMode(true);
+        setManualPrompt(data.prompt ? `Modify: ${data.prompt}` : "e.g. Add more shading, make lines thicker");
+        setTimeout(() => promptSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+        const next = new URLSearchParams(searchParams.toString());
+        next.delete("parent_id");
+        const path = next.toString() ? `/?${next.toString()}` : "/";
+        router.replace(path, { scroll: false });
+      })
+      .catch(() => {})
+      .finally(() => {
+        parentIdLoadedRef.current = null;
+      });
+  }, [searchParams, router]);
+
+  // Download a design with descriptive filename: Inkmind-Tattoo-[prompt-keywords].png
+  // HTTP(S) URLs go through /api/download (watermark + force download); data URLs stay client-side
   const handleDownload = (dataUrl: string, index: number) => {
-    const link = document.createElement('a');
+    const prompt = lastGenerationPrompt || manualPrompt || "";
+    const suffix = designs.length > 1 ? index + 1 : undefined;
+    const filename = promptToDownloadFilename(prompt, suffix != null ? { suffix } : undefined);
+    if (dataUrl.startsWith("http://") || dataUrl.startsWith("https://")) {
+      window.location.href = `/api/download?url=${encodeURIComponent(dataUrl)}&filename=${encodeURIComponent(filename)}`;
+      return;
+    }
+    const link = document.createElement("a");
     link.href = dataUrl;
-    link.download = `frewstar-design-${index + 1}.png`;
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  // Save a design to the library (image + prompt used for generation)
+  // Save a design to the library (image + prompt) into the currently selected gallery
   const handleSaveToLibrary = useCallback((index: number) => {
     const dataUrl = designs[index];
     if (!dataUrl) return;
@@ -219,16 +367,50 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
       style,
       image: dataUrl,
       date: new Date().toISOString(),
+      collectionId: selectedCollectionId || null,
     };
     setDesignLibrary(prev => [entry, ...prev]);
     setSavedInSession(prev => new Set(prev).add(index));
-  }, [designs, lastGenerationPrompt, lastGenerationStyle, manualPrompt, selectedStyle]);
+  }, [designs, lastGenerationPrompt, lastGenerationStyle, manualPrompt, selectedStyle, selectedCollectionId]);
+
+  // Add a new gallery (collection)
+  const handleAddGallery = useCallback(() => {
+    const name = newGalleryName.trim();
+    if (!name) return;
+    const id = `col-${Date.now()}`;
+    setCollections(prev => [...prev, { id, name }]);
+    setSelectedCollectionId(id);
+    setNewGalleryName("");
+  }, [newGalleryName]);
 
   // Load a saved design into the editor (manual mode + prompt + style)
   const handleLoadIntoEditor = useCallback((saved: SavedDesign) => {
     setIsManualMode(true);
     setManualPrompt(saved.prompt);
     setSelectedStyle(saved.style);
+  }, []);
+
+  // Download a saved (heart) design from the library — HTTP URLs via /api/download, data URLs client-side
+  const handleDownloadSaved = useCallback((saved: SavedDesign) => {
+    if (!saved.image) return;
+    const filename = promptToDownloadFilename(saved.prompt);
+    if (saved.image.startsWith("http://") || saved.image.startsWith("https://")) {
+      window.location.href = `/api/download?url=${encodeURIComponent(saved.image)}&filename=${encodeURIComponent(filename)}`;
+      return;
+    }
+    const link = document.createElement("a");
+    link.href = saved.image;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, []);
+
+  // Move a saved design to another gallery
+  const handleMoveToGallery = useCallback((savedId: string, newCollectionId: string) => {
+    setDesignLibrary(prev =>
+      prev.map((d) => (d.id === savedId ? { ...d, collectionId: newCollectionId || null } : d))
+    );
   }, []);
 
   const handleRefImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -253,20 +435,28 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
     try {
       let referenceImageUrl: string | undefined;
       if (refFileRef.current) {
-        const supabase = createClient();
         const file = refFileRef.current;
-        const filename = `${Date.now()}-${file.name}`;
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from("reference-images")
-          .upload(filename, file, { cacheControl: "3600", upsert: false });
-        if (uploadError) {
-          setError(uploadError.message || "Reference image upload failed");
+        const formData = new FormData();
+        formData.append("file", file);
+        const uploadRes = await fetch("/api/upload/reference", {
+          method: "POST",
+          body: formData,
+        });
+        const uploadJson = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) {
+          setError(uploadJson.error || "Reference image upload failed");
           setLoading(false);
           return;
         }
-        const { data: urlData } = supabase.storage.from("reference-images").getPublicUrl(uploadData.path);
-        referenceImageUrl = urlData.publicUrl;
+        referenceImageUrl = uploadJson.url;
       }
+
+      // Use uploaded ref URL, or refImage as URL (e.g. from "Use as reference" on a generated design)
+      const refUrl =
+        referenceImageUrl ?? (refImage?.startsWith("http") ? refImage : undefined);
+      const refData =
+        !refUrl && refImage && !refImage.startsWith("http") ? refImage : undefined;
+      const hasReference = !!refUrl || !!refData;
 
       const res = await fetch("/api/generate", {
         method: "POST",
@@ -277,8 +467,10 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
           placement,
           count: designCount,
           isPaid,
-          ...(referenceImageUrl && { referenceImageUrl }),
-          ...(!referenceImageUrl && refImage && { referenceImage: refImage }),
+          ...(refUrl && { referenceImageUrl: refUrl }),
+          ...(refData && { referenceImage: refData }),
+          ...(hasReference && { referenceStrength }),
+          ...(branchFromDesignId && { parent_id: branchFromDesignId }),
         }),
       });
       const data = await res.json();
@@ -292,6 +484,8 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
       setLastGenerationPrompt(finalPrompt);
       setLastGenerationStyle(selectedStyle);
       setSavedInSession(new Set());
+      setBranchFromDesignId(null);
+      saveLastGeneration(newDesigns, finalPrompt, selectedStyle);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
       setErrorConsoleUrl(null);
@@ -305,10 +499,11 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
       {/* ── LEFT: Wizard Panel ── */}
       <div className="prompt-panel">
         <label style={{ marginBottom: 16 }}>Pick a Style</label>
-        <div className="style-grid">
-          {STYLES.map((s) => (
+        <div className="style-grid style-grid-scroll">
+          {TATTOO_STYLES.map((s) => (
             <button
               key={s.id}
+              type="button"
               className={`style-chip ${selectedStyle === s.id ? "active" : ""}`}
               onClick={() => setSelectedStyle(s.id)}
             >
@@ -414,26 +609,52 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
               Upload Reference (e.g., Pokémon, Logo)
             </button>
             {refImage && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <img
-                  src={refImage}
-                  alt="Reference"
-                  style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 8, border: "1px solid rgba(232,180,90,0.3)" }}
-                />
-                <button
-                  type="button"
-                  onClick={() => { refFileRef.current = null; setRefImage(null); }}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "var(--grey)",
-                    fontSize: 12,
-                    cursor: "pointer",
-                    textDecoration: "underline",
-                  }}
-                >
-                  Remove
-                </button>
+              <div className="reference-with-strength">
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                    <img
+                      src={refImage}
+                      alt="Original"
+                      style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 8, border: "1px solid rgba(232,180,90,0.3)" }}
+                    />
+                    <span style={{ fontSize: 11, color: "var(--grey)" }}>Original</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { refFileRef.current = null; setRefImage(null); setBranchFromDesignId(null); }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--grey)",
+                      fontSize: 12,
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+                <div className="strength-slider-row" style={{ marginTop: 10, maxWidth: 320 }}>
+                  <label htmlFor="ref-strength" style={{ fontSize: 12, color: "var(--grey)", display: "block", marginBottom: 4 }}>
+                    Strength: lower = stay close to original, higher = more change (0.1–1.0)
+                  </label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <input
+                      id="ref-strength"
+                      type="range"
+                      min={0.1}
+                      max={1}
+                      step={0.1}
+                      value={referenceStrength}
+                      onChange={(e) => setReferenceStrength(Number(e.target.value))}
+                      style={{ flex: 1, accentColor: "var(--gold)" }}
+                      aria-label="Reference strength"
+                    />
+                    <span style={{ fontSize: 12, color: "var(--grey)", minWidth: 36 }}>
+                      {(referenceStrength * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -508,18 +729,32 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
               <p>{LOADING_STATUSES[loadingStatusIndex]}</p>
             </div>
           ) : isManualMode ? (
-            <div className="manual-prompt-container">
-              <label htmlFor="manual-prompt" style={{ display: "block", fontSize: 14, fontWeight: 500 }}>
-                Describe your tattoo
-              </label>
-              <textarea
-                id="manual-prompt"
-                className="manual-textarea"
-                value={manualPrompt}
-                onChange={(e) => setManualPrompt(e.target.value)}
-                placeholder="e.g. A fine-line blackwork raven with geometric patterns, bold and minimal, for forearm placement"
-                disabled={loading}
-              />
+            <div ref={promptSectionRef} className="manual-prompt-container">
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                {refImage && (
+                  <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                    <img
+                      src={refImage}
+                      alt="Original"
+                      style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: "1px solid rgba(232,180,90,0.3)" }}
+                    />
+                    <span style={{ fontSize: 11, color: "var(--grey)" }}>Original</span>
+                  </div>
+                )}
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <label htmlFor="manual-prompt" style={{ display: "block", fontSize: 14, fontWeight: 500 }}>
+                    Describe your tattoo
+                  </label>
+                  <textarea
+                    id="manual-prompt"
+                    className="manual-textarea"
+                    value={manualPrompt}
+                    onChange={(e) => setManualPrompt(e.target.value)}
+                    placeholder="e.g. A fine-line blackwork raven with geometric patterns, bold and minimal, for forearm placement"
+                    disabled={loading}
+                  />
+                </div>
+              </div>
               <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
                 <label htmlFor="manual-placement" style={{ fontSize: 14 }}>Placement</label>
                 <select
@@ -584,6 +819,30 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
 
       {/* ── RIGHT: Gallery ── */}
       <div className="gallery-panel">
+        {designs.length > 0 && hasMounted && (
+          <div className="save-to-gallery-strip">
+            <div className="save-to-gallery-label">
+              <span className="saved-hint">Hearted designs save to:</span>
+              <select
+                value={selectedCollectionId}
+                onChange={(e) => setSelectedCollectionId(e.target.value)}
+                className="gallery-select"
+                aria-label="Choose gallery to save designs to"
+              >
+                {collections.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            <p className="save-to-gallery-hint">Pick a gallery above, then tap the heart on any design to add it there.</p>
+          </div>
+        )}
+        {loading ? (
+          <GenerationLoader
+            statusMessage={LOADING_STATUSES[loadingStatusIndex]}
+            count={designCount}
+          />
+        ) : (
         <div className="gallery-grid" style={{
           gridTemplateColumns: showPlaceholders
             ? "repeat(3, 1fr)"
@@ -660,6 +919,22 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                       </button>
                       <button
                         type="button"
+                        className="overlay-btn overlay-btn-edit"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRefImage(dataUrl);
+                          setIsManualMode(true);
+                          setManualPrompt(lastGenerationPrompt ? `Modify: ${lastGenerationPrompt}` : "e.g. Add more shading, make lines thicker");
+                          setTimeout(() => {
+                            promptSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          }, 100);
+                        }}
+                        title="Use this design as reference and edit in the form above"
+                      >
+                        <RefIcon /> Edit this Design
+                      </button>
+                      <button
+                        type="button"
                         className="overlay-btn-main"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -673,16 +948,63 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                 </div>
               ))}
         </div>
+        )}
 
-        {/* Your Design History (saved to localStorage) */}
-        {designLibrary.length > 0 && (
-          <section className="history-section">
-            <h3 className="section-label">Your Design History</h3>
-            <p className="saved-hint" style={{ marginTop: 4 }}>
-              Saved designs — load any into the editor to tweak and regenerate
-            </p>
-            <div className="history-grid">
-              {designLibrary.map((saved) => (
+        {/* Your Galleries — skeleton while hydrating; after mount always show so user can create galleries before generating */}
+        {!hasMounted && <HistorySkeleton />}
+        {hasMounted && (
+          <div className="animate-historyFadeIn">
+            <section className="history-section">
+              <h3 className="section-label">Your Galleries</h3>
+              <p className="saved-hint" style={{ marginTop: 4 }}>
+                {designLibrary.length > 0
+                  ? "Saved designs by gallery — load into the editor or download"
+                  : "Create galleries below, then generate designs and tap the heart to add them."}
+              </p>
+              <div className="gallery-filter-row">
+                <button
+                  type="button"
+                  className={`gallery-filter-chip ${filterCollectionId === null ? "active" : ""}`}
+                  onClick={() => setFilterCollectionId(null)}
+                >
+                  All
+                </button>
+                {collections.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={`gallery-filter-chip ${filterCollectionId === c.id ? "active" : ""}`}
+                    onClick={() => setFilterCollectionId(c.id)}
+                  >
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+              <div className="new-gallery-row">
+                <input
+                  type="text"
+                  placeholder="New gallery name"
+                  value={newGalleryName}
+                  onChange={(e) => setNewGalleryName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAddGallery()}
+                  className="new-gallery-input"
+                  aria-label="New gallery name"
+                />
+                <button
+                  type="button"
+                  className="btn-outline new-gallery-btn"
+                  onClick={handleAddGallery}
+                  disabled={!newGalleryName.trim()}
+                >
+                  Add gallery
+                </button>
+              </div>
+              <div className="history-grid">
+              {filteredDesignLibrary.length === 0 ? (
+                <p className="saved-hint" style={{ gridColumn: "1 / -1", marginTop: 8 }}>
+                  {filterCollectionId == null ? "No saved designs yet." : "No designs in this gallery."}
+                </p>
+              ) : filteredDesignLibrary.map((saved) => (
                 <div
                   key={saved.id}
                   className="history-card"
@@ -700,22 +1022,70 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                     <span title={saved.prompt}>
                       {saved.prompt.slice(0, 40)}{saved.prompt.length > 40 ? "…" : ""}
                     </span>
-                    <button
-                      type="button"
-                      className="overlay-btn-main"
-                      style={{ marginTop: 8, width: "100%", fontSize: 12, padding: "8px 12px" }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleLoadIntoEditor(saved);
-                      }}
-                    >
-                      Load into Editor
-                    </button>
+                    <div className="history-card-actions">
+                      <button
+                        type="button"
+                        className="action-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDownloadSaved(saved);
+                        }}
+                        title="Download"
+                      >
+                        <DownloadIcon />
+                      </button>
+                      <button
+                        type="button"
+                        className="action-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRefImage(saved.image);
+                          setIsManualMode(true);
+                          setManualPrompt(`Modify: ${saved.prompt.slice(0, 60)}${saved.prompt.length > 60 ? "…" : ""}`);
+                          setTimeout(() => {
+                            promptSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          }, 100);
+                        }}
+                        title="Use as reference and edit in the form above"
+                      >
+                        <RefIcon />
+                      </button>
+                      <button
+                        type="button"
+                        className="overlay-btn-main"
+                        style={{ flex: 1, fontSize: 12, padding: "8px 12px" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleLoadIntoEditor(saved);
+                        }}
+                      >
+                        Load into Editor
+                      </button>
+                    </div>
+                    <div className="history-move-row">
+                      <label htmlFor={`move-${saved.id}`} className="history-move-label">Move to:</label>
+                      <select
+                        id={`move-${saved.id}`}
+                        value={saved.collectionId ?? "general"}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          handleMoveToGallery(saved.id, e.target.value);
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="history-move-select"
+                        aria-label="Move to gallery"
+                      >
+                        {collections.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
-          </section>
+            </section>
+          </div>
         )}
 
         {/* Booking strip */}

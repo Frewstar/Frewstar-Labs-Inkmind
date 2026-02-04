@@ -14,8 +14,12 @@ function isSupabaseConfigured(): boolean {
   return true;
 }
 
-export default function LoginPage() {
+type Props = { searchParams: Promise<{ error?: string }> };
+
+export default async function LoginPage({ searchParams }: Props) {
   const authConfigured = isSupabaseConfigured();
+  const params = await searchParams;
+  const errorFromUrl = params?.error ? decodeURIComponent(params.error) : undefined;
 
   return (
     <main
@@ -43,7 +47,7 @@ export default function LoginPage() {
       </Link>
 
       <div className="relative z-10 w-full flex justify-center">
-        <LoginForm authConfigured={authConfigured} />
+        <LoginForm authConfigured={authConfigured} errorFromUrl={errorFromUrl} />
       </div>
     </main>
   );

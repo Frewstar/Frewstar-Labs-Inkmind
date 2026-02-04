@@ -16,6 +16,20 @@ const config: Config = {
         brand: "var(--brand-color)",
         accent: "var(--accent-color)",
       },
+      keyframes: {
+        shimmer: {
+          "0%": { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(100%)" },
+        },
+        historyFadeIn: {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+      },
+      animation: {
+        shimmer: "shimmer 2s infinite linear",
+        historyFadeIn: "historyFadeIn 300ms ease-out forwards",
+      },
     },
   },
   plugins: [],

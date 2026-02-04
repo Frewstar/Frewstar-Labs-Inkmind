@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { getAccessToken } from "@/lib/google-auth";
 import { createClient } from "@/utils/supabase/server";
 import prisma from "@/lib/db";
+import { getStyleById } from "@/lib/tattoo-styles";
+import { saveGeneratedImageToLocal } from "@/lib/local-storage";
+
+const DEFAULT_STUDIO_SLUG = "default";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID?.trim().replace(/^["']|["']$/g, "");
@@ -26,8 +31,15 @@ interface GenerateRequest {
   placement: string;
   count?: number;
   isPaid?: boolean;
+  /** If provided, fetch this design's image_url and use it as the AI reference (when no referenceImage/referenceImageUrl). */
+  parent_id?: string;
   referenceImage?: string; // base64 (with or without data URL prefix)
   referenceImageUrl?: string; // Supabase storage or other public URL
+  reference_image_url?: string; // alias for referenceImageUrl (e.g. Replicate-style clients)
+  /** Img2Img strength 0.1–1.0: lower = stay closer to reference, higher = more freedom. Default 0.5. */
+  referenceStrength?: number;
+  /** Alias for referenceStrength (e.g. prompt_strength / strength from other providers). */
+  strength?: number;
 }
 
 const QUOTA_EXCEEDED_MESSAGE =
@@ -36,8 +48,8 @@ const QUOTA_EXCEEDED_MESSAGE =
 export async function POST(req: NextRequest) {
   try {
     let authUser: { id: string; email?: string | null } | null = null;
-    let prismaUser: { id: string; authId: string | null; isAdmin: boolean; dailyGenerations: number } | null = null;
-    let isAdmin = false;
+    let prismaUser: { id: string; isAdmin: boolean; dailyGenerations: number; role: string | null } | null = null;
+    let isQuotaExempt = false;
     let isGuest = false;
 
     try {
@@ -49,21 +61,21 @@ export async function POST(req: NextRequest) {
     }
 
     if (authUser?.id) {
-      const user = await prisma.user.findFirst({
-        where: {
-          OR: [{ authId: authUser.id }, { email: authUser.email ?? undefined }],
-        },
+      const profile = await prisma.profiles.findUnique({
+        where: { id: authUser.id },
+        select: { id: true, is_admin: true, daily_generations: true, role: true },
       });
-      if (user) {
-        prismaUser = user;
-        if (!user.authId && authUser.email) {
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { authId: authUser.id },
-          });
-          prismaUser = { ...user, authId: authUser.id };
-        }
-        isAdmin = user.isAdmin;
+      if (profile) {
+        prismaUser = {
+          id: profile.id,
+          isAdmin: profile.is_admin,
+          dailyGenerations: profile.daily_generations,
+          role: profile.role,
+        };
+        isQuotaExempt =
+          profile.is_admin ||
+          profile.role === "PRO" ||
+          profile.role === "SUPER_ADMIN";
       }
     } else {
       isGuest = true;
@@ -76,7 +88,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!isGuest && prismaUser && !isAdmin && prismaUser.dailyGenerations <= 0) {
+    if (!isGuest && prismaUser && !isQuotaExempt && prismaUser.dailyGenerations <= 0) {
       return NextResponse.json(
         { error: "Quota exceeded", message: QUOTA_EXCEEDED_MESSAGE },
         { status: 403 }
@@ -84,19 +96,50 @@ export async function POST(req: NextRequest) {
     }
 
     const body: GenerateRequest = await req.json();
-    const { prompt, style, placement, count = 4, isPaid = false, referenceImage, referenceImageUrl } = body;
+    const {
+      prompt,
+      style,
+      placement,
+      count = 4,
+      isPaid = false,
+      parent_id: parentId,
+      referenceImage,
+      referenceImageUrl,
+      reference_image_url,
+      referenceStrength: rawStrength,
+      strength: strengthAlias,
+    } = body;
+
+    // Resolve reference URL: explicit URL, or from parent_id (fetch parent design's image_url)
+    let referenceUrl = referenceImageUrl ?? reference_image_url;
+    if (parentId && !referenceUrl && !referenceImage) {
+      const parentDesign = await prisma.designs.findUnique({
+        where: { id: parentId },
+        select: { image_url: true },
+      });
+      if (parentDesign?.image_url) {
+        referenceUrl = parentDesign.image_url;
+      }
+    }
+
+    // Strength: default 0.5, range 0.1–1.0
+    const rawStrengthValue = rawStrength ?? strengthAlias;
+    const referenceStrength =
+      rawStrengthValue != null
+        ? Math.min(1, Math.max(0.1, Number(rawStrengthValue)))
+        : 0.5;
 
     let referenceImageData = referenceImage;
-    if (referenceImageUrl && !referenceImageData) {
+    if (referenceUrl && !referenceImageData) {
       try {
-        const imageRes = await fetch(referenceImageUrl);
+        const imageRes = await fetch(referenceUrl);
         if (!imageRes.ok) throw new Error("Failed to fetch reference image");
         const buf = await imageRes.arrayBuffer();
         const base64 = Buffer.from(buf).toString("base64");
         const contentType = imageRes.headers.get("content-type") || "image/png";
         referenceImageData = `data:${contentType};base64,${base64}`;
       } catch (e) {
-        console.error("[InkMind] Failed to fetch referenceImageUrl:", e);
+        console.error("[InkMind] Failed to fetch reference image URL:", e);
         return NextResponse.json(
           { error: "Failed to load reference image from URL" },
           { status: 400 }
@@ -154,17 +197,75 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!isGuest && prismaUser && !isAdmin) {
-      await prisma.user.update({
+    if (!isGuest && prismaUser && !isQuotaExempt) {
+      await prisma.profiles.update({
         where: { id: prismaUser.id },
-        data: { dailyGenerations: { decrement: 1 } },
+        data: { daily_generations: { decrement: 1 } },
       });
+    }
+
+    const useLocalStorage = process.env.USE_LOCAL_STORAGE === "true";
+
+    let designId: string | null = null;
+    let designsToReturn: string[] = images;
+
+    if (useLocalStorage) {
+      // Store images in public/uploads/generated for testing without Supabase
+      const urls: string[] = [];
+      for (let i = 0; i < images.length; i++) {
+        try {
+          const url = await saveGeneratedImageToLocal(images[i]);
+          urls.push(url);
+        } catch (err) {
+          console.error("[InkMind] Local save failed for image", i + 1, err);
+          urls.push(images[i]); // fallback to base64 so client still gets an image
+        }
+      }
+      designsToReturn = urls;
+      console.log(`[InkMind] Saved ${urls.length} images to local folder (USE_LOCAL_STORAGE=true)`);
+    } else if (authUser?.id) {
+      try {
+        const supabase = await createClient();
+        const defaultStudio = await getOrCreateDefaultStudio();
+        const profileId = authUser.id;
+
+        const promptForDb = [prompt, style, placement].filter(Boolean).join(" — ") || fullPrompt;
+        const uploadedUrls: string[] = [];
+
+        for (let i = 0; i < images.length; i++) {
+          const imageUrl = await uploadGeneratedImage(supabase, profileId, images[i], defaultStudio.id);
+          if (!imageUrl) {
+            uploadedUrls.push(images[i]); // fallback to base64 if upload failed
+            continue;
+          }
+          uploadedUrls.push(imageUrl);
+
+          const design = await prisma.designs.create({
+            data: {
+              profile_id: profileId,
+              studio_id: defaultStudio.id,
+              image_url: imageUrl,
+              prompt: promptForDb,
+              reference_image_url: referenceUrl ?? null,
+              parent_id: parentId ?? null,
+              status: "draft",
+            },
+            select: { id: true },
+          });
+          if (i === 0) designId = design.id;
+        }
+        // Return URLs so the client can persist last generation in localStorage without quota issues
+        designsToReturn = uploadedUrls;
+      } catch (err) {
+        console.error("[InkMind] Failed to save design(s) to DB:", err);
+      }
     }
 
     console.log(`[InkMind] Successfully generated ${images.length}/${count} images`);
     return NextResponse.json({
-      designs: images,
-      ...(referenceImageUrl && { referenceImageUrl }),
+      designs: designsToReturn,
+      ...(designId != null && { designId }),
+      ...(referenceUrl && { referenceImageUrl: referenceUrl }),
     });
   } catch (error) {
     console.error("[InkMind] Image generation error:", error);
@@ -175,39 +276,57 @@ export async function POST(req: NextRequest) {
   }
 }
 
-function buildTattooPrompt(userPrompt: string, style: string, placement: string, hasReferenceImage?: boolean): string {
-  const styleMap: Record<string, string> = {
-    "fine-line": "Fine-line blackwork",
-    "geometric": "Geometric blackwork",
-    "blackwork": "Bold blackwork",
-    "watercolor": "Watercolor with black outlines",
-    "traditional": "Traditional American style",
-    "minimalist": "Minimalist fine-line",
-  };
+const ARTIST_SYSTEM_INSTRUCTION = `You are a World Class Tattoo Artist. Your output must be ink-on-skin logic only: designs that can actually be tattooed. No impossible gradients, no 3D renders, no digital-art-only effects. Think like a tattooist: clean linework, achievable shading, and compositions that sit well on skin.`;
 
-  const styleName = styleMap[style] || style;
+/** Strength 0.1–1.0: lower = stay very close to reference, higher = more freedom. */
+function getReferenceInstruction(strength: number): string {
+  if (strength <= 0.3) {
+    return "\nREFERENCE (STRICT): A reference image is provided. Make only very subtle changes. Keep the composition, linework, and almost all details identical. Only apply the specific modifications requested in the prompt (e.g. add shading, thicken lines). Do not redraw or reimagine the design.";
+  }
+  if (strength <= 0.6) {
+    return "\nREFERENCE: A reference image is provided. Use it as a strong base. Modify it according to the user's instructions while keeping the same general composition and subject. Translate into the chosen tattoo style where requested.";
+  }
+  if (strength <= 0.9) {
+    return "\nREFERENCE (LOOSE): A reference image is provided as inspiration only. You may change composition, style, and details more freely. Follow the user's instructions and the chosen tattoo style.";
+  }
+  return "\nREFERENCE (MAX): A reference image is provided for inspiration only. You have maximum freedom to reinterpret the design. Follow the user's instructions and the chosen tattoo style; the output may differ significantly from the reference.";
+}
+
+function buildTattooPrompt(
+  userPrompt: string,
+  style: string,
+  placement: string,
+  hasReferenceImage?: boolean,
+  referenceStrength: number = 0.5
+): string {
+  const stylePreset = getStyleById(style);
+  const styleLabel = stylePreset?.label ?? style;
+  const styleKeywords = stylePreset?.keywords ?? "";
+
+  const subjectLine = styleKeywords
+    ? `A ${styleLabel.toLowerCase()} tattoo of ${userPrompt}, ${styleKeywords}.`
+    : `A ${styleLabel.toLowerCase()} tattoo of ${userPrompt}.`;
 
   const referenceInstruction = hasReferenceImage
-    ? "\nREFERENCE: A reference image is provided. Maintain its core subject matter but translate it into the chosen tattoo style."
+    ? getReferenceInstruction(referenceStrength)
     : "";
 
   return `Create a professional tattoo design on a clean white background, ready to show a client.
 
-STYLE: ${styleName}
-SUBJECT: ${userPrompt}
+STYLE / SUBJECT: ${subjectLine}
 PLACEMENT: ${placement}
 
 ARTIST DIRECTION:
-- Inspired by Mars's signature style: minimal architectural aesthetic with bold linework
 - High contrast black ink with subtle gold (#E8B45A) accent details where appropriate
 - Clean, centered composition on pure white background
 - No skin texture, no background elements, just the design itself
 - Tattoo-ready quality — what the client would actually see as a design sketch
+- Ink-on-skin logic only: no impossible gradients, no 3D renders
 
 SHADING REQUIREMENTS (STRICT):
-- Use professional whip-shading, soft gradients, and stippling
-- Avoid flat black areas
-- Ensure 3D depth and realistic light-to-shadow transitions
+- Use professional whip-shading, soft gradients, and stippling where the style allows
+- Avoid flat black areas unless the style calls for it (e.g. blackwork)
+- Achievable light-to-shadow transitions that work as real tattoos
 ${referenceInstruction}
 
 TECHNICAL REQUIREMENTS:
@@ -227,6 +346,49 @@ function parseReferenceImage(ref: string): { data: string; mimeType: string } {
   return { data: ref, mimeType: "image/png" };
 }
 
+/** Get or create the default studio for saving designs from the generate API. */
+async function getOrCreateDefaultStudio(): Promise<{ id: string }> {
+  let studio = await prisma.studios.findUnique({
+    where: { slug: DEFAULT_STUDIO_SLUG },
+    select: { id: true },
+  });
+  if (!studio) {
+    studio = await prisma.studios.create({
+      data: { slug: DEFAULT_STUDIO_SLUG, name: "InkMind Default" },
+      select: { id: true },
+    });
+  }
+  return studio;
+}
+
+/** Upload a base64 data-URL image to Supabase storage; returns public URL or null. Tags with studio_id for scoped storage. */
+async function uploadGeneratedImage(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  profileId: string,
+  dataUrl: string,
+  studioId: string
+): Promise<string | null> {
+  const { data, mimeType } = parseReferenceImage(dataUrl);
+  const ext = mimeType === "image/png" ? "png" : mimeType === "image/jpeg" ? "jpg" : "png";
+  const path = `${profileId}/${randomUUID()}.${ext}`;
+  const buf = Buffer.from(data, "base64");
+
+  const { error } = await supabase.storage.from("generated-designs").upload(path, buf, {
+    contentType: mimeType,
+    cacheControl: "3600",
+    upsert: false,
+    metadata: { studio_id: studioId },
+  });
+
+  if (error) {
+    console.error("[InkMind] Upload generated image failed:", error.message);
+    return null;
+  }
+
+  const { data: urlData } = supabase.storage.from("generated-designs").getPublicUrl(path);
+  return urlData.publicUrl;
+}
+
 async function generateSingleImage(
   prompt: string,
   options: { isPaid?: boolean; token?: string; referenceImage?: string } = {}
@@ -241,20 +403,18 @@ async function generateSingleImage(
   }
   parts.push({ text: prompt });
 
+  let systemText = ARTIST_SYSTEM_INSTRUCTION;
+  if (referenceImage) {
+    systemText += "\n\nIf a reference image is provided, maintain its core subject matter but translate it into the chosen tattoo style.";
+  }
+
   const requestBody: Record<string, unknown> = {
     contents: [{ role: "user", parts }],
+    systemInstruction: { parts: [{ text: systemText }] },
     generationConfig: isPaid
       ? { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "1:1", imageSize: "2K" } }
       : { responseModalities: ["IMAGE"] },
   };
-
-  if (referenceImage) {
-    requestBody.systemInstruction = {
-      parts: [{
-        text: "If a reference image is provided, maintain its core subject matter but translate it into the chosen tattoo style.",
-      }],
-    };
-  }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

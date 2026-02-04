@@ -20,6 +20,9 @@
 # production
 /build
 
+# local uploads (testing without Supabase)
+/public/uploads/
+
 # misc
 .DS_Store
 *.pem

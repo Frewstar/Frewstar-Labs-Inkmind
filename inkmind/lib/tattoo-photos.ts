@@ -7,7 +7,6 @@ const TATTOO_PHOTOS_POOL = [
   "/Tatto Photos/Messenger_creation_736A80F2-425A-4EFD-A455-6DD9E22E4CE6.jpeg",
   "/Tatto Photos/Messenger_creation_740784B5-59BE-43B5-A92A-18B0F11D5F21.jpeg",
   "/Tatto Photos/Messenger_creation_7A1D3AB5-2161-4032-9108-CA9D0E7032E4.jpeg",
-  "/Tatto Photos/Messenger_creation_8844CDE1-B2F3-4984-A868-9D3BBC285E2F.jpeg",
   "/Tatto Photos/Messenger_creation_98166F86-9B2C-4993-900A-A5CF4FA1A488.jpeg",
   "/Tatto Photos/Messenger_creation_A6B1BAF7-D545-4C22-929C-5E62003E55CC.jpeg",
   "/Tatto Photos/updated tatto1.JPG",
@@ -34,7 +33,13 @@ function shuffle<T>(arr: T[]): T[] {
   return out;
 }
 
-/** Returns n random tattoo photos from the pool. Guarantees all unique — no duplicate tattoos. */
+/** Returns the first n tattoo photos from the pool (deterministic). Use for SSR/initial render to avoid hydration mismatch. */
+export function getFirstTattooPhotos(n: number): string[] {
+  const pool = [...new Set(TATTOO_PHOTOS_POOL)];
+  return pool.slice(0, Math.min(n, pool.length));
+}
+
+/** Returns n random tattoo photos from the pool. Guarantees all unique — no duplicate tattoos. Call only client-side (e.g. in useEffect). */
 export function getRandomTattooPhotos(n: number): string[] {
   const uniquePool = [...new Set(TATTOO_PHOTOS_POOL)];
   if (uniquePool.length < n) {

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import ImageLightbox from "./ImageLightbox";
-import { getRandomTattooPhotos } from "@/lib/tattoo-photos";
+import { getFirstTattooPhotos, getRandomTattooPhotos } from "@/lib/tattoo-photos";
 
 /**
  * InstagramPortfolio — Client Component
@@ -10,7 +10,7 @@ import { getRandomTattooPhotos } from "@/lib/tattoo-photos";
  * Click any image to enlarge in lightbox.
  */
 export default function InstagramPortfolio() {
-  const [photos, setPhotos] = useState<string[]>(() => getRandomTattooPhotos(6));
+  const [photos, setPhotos] = useState<string[]>(() => getFirstTattooPhotos(6));
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
   const refreshPhotos = () => {
@@ -18,6 +18,7 @@ export default function InstagramPortfolio() {
   };
 
   useEffect(() => {
+    setPhotos(getRandomTattooPhotos(6));
     const interval = setInterval(refreshPhotos, 60000);
     return () => clearInterval(interval);
   }, []);

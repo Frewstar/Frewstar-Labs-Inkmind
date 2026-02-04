@@ -446,6 +446,10 @@ section[id] {
   gap: 0.5rem;
   margin-top: 0.75rem;
 }
+.style-grid-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .style-chip {
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.08);
@@ -1419,6 +1423,81 @@ footer p { font-size: clamp(0.6875rem, 2vw, 0.75rem); color: var(--grey-dim); }
   font-style: italic;
 }
 
+/* ─── Generation Loader (gallery panel, up to ~60s) ───────────────────────── */
+
+.generation-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  padding: 1.5rem 0;
+}
+
+.generation-loader-grid {
+  display: grid;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 100%;
+}
+
+.generation-loader-card {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--bg-card);
+  border: 1px solid rgba(232, 180, 90, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.generation-loader-card-shimmer {
+  position: absolute;
+  inset: 0;
+  width: 50%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(232, 180, 90, 0.06),
+    transparent
+  );
+  animation: generation-shimmer 2s ease-in-out infinite;
+}
+
+.generation-loader-card-spinner {
+  width: 32px;
+  height: 32px;
+  border: 2px solid rgba(232, 180, 90, 0.15);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: wizard-spin 0.9s linear infinite;
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes generation-shimmer {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(200%); }
+  100% { transform: translateX(-100%); }
+}
+
+.generation-loader-status {
+  font-family: var(--font-head);
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--gold);
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+
+.generation-loader-hint {
+  font-size: 0.8rem;
+  color: var(--grey-dim);
+  margin: 0;
+}
+
 /* ─── Gallery Card Image Styles ───────────────────────────────────────────── */
 
 .gallery-card-img {
@@ -1544,6 +1623,33 @@ footer p { font-size: clamp(0.6875rem, 2vw, 0.75rem); color: var(--grey-dim); }
   transform: translateY(-2px);
 }
 
+.card-overlay .overlay-btn-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: rgba(10, 10, 10, 0.85);
+  border: 1px solid rgba(232, 180, 90, 0.4);
+  border-radius: 50px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #E8B45A;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(10px);
+}
+
+.card-overlay .overlay-btn-edit:hover {
+  background: rgba(232, 180, 90, 0.15);
+  border-color: #E8B45A;
+}
+
+.card-overlay .overlay-btn-edit svg {
+  width: 14px;
+  height: 14px;
+}
+
 /* Update card-overlay to use flexbox for centering */
 .card-overlay {
   position: absolute;
@@ -1589,10 +1695,122 @@ footer p { font-size: clamp(0.6875rem, 2vw, 0.75rem); color: var(--grey-dim); }
 
 /* ─── Design History (Saved Library) ──────────────────────────────────────── */
 
+/* Save-to-gallery strip (above generated designs) */
+.save-to-gallery-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.save-to-gallery-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.save-to-gallery-strip .saved-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--grey);
+}
+.save-to-gallery-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--grey-dim);
+}
+.gallery-select {
+  background: var(--bg-card);
+  border: 1px solid rgba(232, 180, 90, 0.2);
+  color: var(--white);
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  min-width: 140px;
+}
+.gallery-select:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
 .history-section {
   margin-top: 1.5rem;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
   padding-top: 1.25rem;
+}
+
+/* Gallery filter chips (All | Arm tattoos | …) */
+.gallery-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.gallery-filter-chip {
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: transparent;
+  color: var(--grey);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.gallery-filter-chip:hover {
+  border-color: var(--gold);
+  color: var(--white);
+}
+.gallery-filter-chip.active {
+  background: var(--gold-dim);
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+/* New gallery row */
+.new-gallery-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.new-gallery-input {
+  flex: 1;
+  min-width: 120px;
+  background: var(--bg-card);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--white);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.new-gallery-input::placeholder {
+  color: var(--grey-dim);
+}
+.new-gallery-input:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+.new-gallery-btn {
+  padding: 8px 14px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Studio Settings form inputs */
+.studio-settings-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--white);
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  font-size: 14px;
+}
+.studio-settings-input::placeholder {
+  color: var(--grey-dim);
+}
+.studio-settings-input:focus {
+  outline: none;
+  border-color: var(--gold);
 }
 
 .history-grid {
@@ -1645,6 +1863,44 @@ footer p { font-size: clamp(0.6875rem, 2vw, 0.75rem); color: var(--grey-dim); }
 
 .history-overlay .overlay-btn-main {
   margin-top: 0;
+}
+
+.history-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  width: 100%;
+}
+
+.history-move-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.history-move-label {
+  font-size: 10px;
+  color: var(--grey);
+  margin: 0;
+  white-space: nowrap;
+}
+
+.history-move-select {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-card);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--white);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.history-move-select:focus {
+  outline: none;
+  border-color: var(--gold);
 }
 
 /* ─── Demo theme switcher UI ─────────────────────────────────────────────── */
@@ -1721,4 +1977,24 @@ footer p { font-size: clamp(0.6875rem, 2vw, 0.75rem); color: var(--grey-dim); }
     width: 40px;
     height: 40px;
   }
+}
+
+/* ─── Tattoo image watermark (InkMind branding) ───────────────────────────── */
+.tattoo-watermark-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  max-height: 100%;
+}
+.tattoo-watermark {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
 }
