@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import BookingModal from "./BookingModal";
 import ConversationalWizard from "./ConversationalWizard";
 import ImageLightbox from "./ImageLightbox";
 import { getRandomTattooPhotos } from "@/lib/tattoo-photos";
+import { createClient } from "@/utils/supabase/client";
 
 export type DesignStudioProps = {
   onOpenBooking?: () => void;
@@ -111,6 +113,8 @@ function HeartIcon({ filled }: { filled: boolean }) {
 // ─── COMPONENT ───────────────────────────────────────────────────────────────
 
 export default function DesignStudio({ onOpenBooking: externalOpenBooking }: DesignStudioProps = {}) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [selectedStyle, setSelectedStyle] = useState("fine-line");
   const [designCount, setDesignCount] = useState(4); // New: adjustable count
   const [designs, setDesigns] = useState<string[]>([]);
@@ -134,6 +138,8 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [placeholderImages, setPlaceholderImages] = useState<string[]>(() => getRandomTattooPhotos(6));
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const refFileRef = useRef<File | null>(null);
+  const tweakLoadedRef = useRef<string | null>(null);
 
   const useExternalBooking = !!externalOpenBooking;
   const openBookingModal = useExternalBooking ? externalOpenBooking! : () => setBookingModalOpen(true);
@@ -166,6 +172,30 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
     }, 60000);
     return () => clearInterval(interval);
   }, [showPlaceholders]);
+
+  // Load design from "Tweak this Design" (?tweak=id) — My Designs gallery
+  useEffect(() => {
+    const tweakId = searchParams.get("tweak");
+    if (!tweakId || tweakLoadedRef.current === tweakId) return;
+    tweakLoadedRef.current = tweakId;
+    fetch(`/api/designs/${tweakId}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((design: { prompt?: string; imageUrl?: string } | null) => {
+        if (!design?.prompt) return;
+        setIsManualMode(true);
+        setManualPrompt(design.prompt);
+        if (design.imageUrl) setRefImage(design.imageUrl);
+        document.getElementById("studio")?.scrollIntoView({ behavior: "smooth" });
+        const next = new URLSearchParams(searchParams.toString());
+        next.delete("tweak");
+        const path = next.toString() ? `/?${next.toString()}` : "/";
+        router.replace(path, { scroll: false });
+      })
+      .catch(() => {})
+      .finally(() => {
+        tweakLoadedRef.current = null;
+      });
+  }, [searchParams, router]);
 
   // Download a design
   const handleDownload = (dataUrl: string, index: number) => {
@@ -204,6 +234,7 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
   const handleRefImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    refFileRef.current = file;
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result;
@@ -220,6 +251,23 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
     setErrorConsoleUrl(null);
 
     try {
+      let referenceImageUrl: string | undefined;
+      if (refFileRef.current) {
+        const supabase = createClient();
+        const file = refFileRef.current;
+        const filename = `${Date.now()}-${file.name}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from("reference-images")
+          .upload(filename, file, { cacheControl: "3600", upsert: false });
+        if (uploadError) {
+          setError(uploadError.message || "Reference image upload failed");
+          setLoading(false);
+          return;
+        }
+        const { data: urlData } = supabase.storage.from("reference-images").getPublicUrl(uploadData.path);
+        referenceImageUrl = urlData.publicUrl;
+      }
+
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -229,7 +277,8 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
           placement,
           count: designCount,
           isPaid,
-          ...(refImage && { referenceImage: refImage }),
+          ...(referenceImageUrl && { referenceImageUrl }),
+          ...(!referenceImageUrl && refImage && { referenceImage: refImage }),
         }),
       });
       const data = await res.json();
@@ -373,7 +422,7 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                 />
                 <button
                   type="button"
-                  onClick={() => setRefImage(null)}
+                  onClick={() => { refFileRef.current = null; setRefImage(null); }}
                   style={{
                     background: "none",
                     border: "none",

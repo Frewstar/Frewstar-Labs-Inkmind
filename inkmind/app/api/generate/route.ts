@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAccessToken } from "@/lib/google-auth";
+import { createClient } from "@/utils/supabase/server";
+import prisma from "@/lib/db";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID?.trim().replace(/^["']|["']$/g, "");
@@ -25,12 +27,82 @@ interface GenerateRequest {
   count?: number;
   isPaid?: boolean;
   referenceImage?: string; // base64 (with or without data URL prefix)
+  referenceImageUrl?: string; // Supabase storage or other public URL
 }
+
+const QUOTA_EXCEEDED_MESSAGE =
+  "You have used your 5 free daily designs. Come back tomorrow or upgrade!";
 
 export async function POST(req: NextRequest) {
   try {
+    let authUser: { id: string; email?: string | null } | null = null;
+    let prismaUser: { id: string; authId: string | null; isAdmin: boolean; dailyGenerations: number } | null = null;
+    let isAdmin = false;
+    let isGuest = false;
+
+    try {
+      const supabase = await createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      authUser = user ?? null;
+    } catch {
+      authUser = null;
+    }
+
+    if (authUser?.id) {
+      const user = await prisma.user.findFirst({
+        where: {
+          OR: [{ authId: authUser.id }, { email: authUser.email ?? undefined }],
+        },
+      });
+      if (user) {
+        prismaUser = user;
+        if (!user.authId && authUser.email) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { authId: authUser.id },
+          });
+          prismaUser = { ...user, authId: authUser.id };
+        }
+        isAdmin = user.isAdmin;
+      }
+    } else {
+      isGuest = true;
+    }
+
+    if (!isGuest && !prismaUser) {
+      return NextResponse.json(
+        { error: "Forbidden", message: "No account found. Sign in or create an account." },
+        { status: 403 }
+      );
+    }
+
+    if (!isGuest && prismaUser && !isAdmin && prismaUser.dailyGenerations <= 0) {
+      return NextResponse.json(
+        { error: "Quota exceeded", message: QUOTA_EXCEEDED_MESSAGE },
+        { status: 403 }
+      );
+    }
+
     const body: GenerateRequest = await req.json();
-    const { prompt, style, placement, count = 4, isPaid = false, referenceImage } = body;
+    const { prompt, style, placement, count = 4, isPaid = false, referenceImage, referenceImageUrl } = body;
+
+    let referenceImageData = referenceImage;
+    if (referenceImageUrl && !referenceImageData) {
+      try {
+        const imageRes = await fetch(referenceImageUrl);
+        if (!imageRes.ok) throw new Error("Failed to fetch reference image");
+        const buf = await imageRes.arrayBuffer();
+        const base64 = Buffer.from(buf).toString("base64");
+        const contentType = imageRes.headers.get("content-type") || "image/png";
+        referenceImageData = `data:${contentType};base64,${base64}`;
+      } catch (e) {
+        console.error("[InkMind] Failed to fetch referenceImageUrl:", e);
+        return NextResponse.json(
+          { error: "Failed to load reference image from URL" },
+          { status: 400 }
+        );
+      }
+    }
 
     if (!prompt || !style || !placement) {
       return NextResponse.json(
@@ -55,7 +127,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const fullPrompt = buildTattooPrompt(prompt, style, placement, !!referenceImage);
+    const fullPrompt = buildTattooPrompt(prompt, style, placement, !!referenceImageData);
 
     const modelLabel = isPaid ? `Paid tier (${PAID_MODEL_ID})` : `Free tier (${FREE_MODEL_ID})`;
     console.log(`[InkMind] Generating ${count} images using ${modelLabel}`);
@@ -67,7 +139,7 @@ export async function POST(req: NextRequest) {
 
     const images: string[] = [];
     for (let i = 0; i < count; i++) {
-      const imageData = await generateSingleImage(fullPrompt, { isPaid, token, referenceImage });
+      const imageData = await generateSingleImage(fullPrompt, { isPaid, token, referenceImage: referenceImageData });
       if (imageData) {
         images.push(imageData);
       } else {
@@ -82,8 +154,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (!isGuest && prismaUser && !isAdmin) {
+      await prisma.user.update({
+        where: { id: prismaUser.id },
+        data: { dailyGenerations: { decrement: 1 } },
+      });
+    }
+
     console.log(`[InkMind] Successfully generated ${images.length}/${count} images`);
-    return NextResponse.json({ designs: images });
+    return NextResponse.json({
+      designs: images,
+      ...(referenceImageUrl && { referenceImageUrl }),
+    });
   } catch (error) {
     console.error("[InkMind] Image generation error:", error);
     return NextResponse.json(

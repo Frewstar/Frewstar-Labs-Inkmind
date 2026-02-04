@@ -3,6 +3,12 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Dynamic branding: overridden by studio layout on tenant routes */
+@theme {
+  --color-brand: var(--brand-color);
+  --color-accent: var(--accent-color);
+}
+
 :root {
   --bg:          #0A0A0A;
   --bg-card:     #141414;
@@ -18,12 +24,31 @@
   --radius-lg:   20px;
   --font-head:   'Playfair Display', Georgia, serif;
   --font-body:   'DM Sans', system-ui, sans-serif;
+  /* Studio branding (defaults; overridden by body style on tenant routes) */
+  --brand-color: #E8B45A;
+  --accent-color: #CCCCCC;
   /* Safe areas for notches / home indicator (iOS, Android) */
   --safe-top:    env(safe-area-inset-top, 0px);
   --safe-right:  env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left:   env(safe-area-inset-left, 0px);
   --touch-min:   44px; /* min touch target (Apple HIG / Material) */
+}
+
+/* ─── Demo theme switcher: [data-theme] on <html> ─── */
+[data-theme="classic-gold"] {
+  --brand-color: #E8B45A;
+  --accent-color: #CCCCCC;
+}
+
+[data-theme="black-sector"] {
+  --brand-color: #C0C0C0;
+  --accent-color: #00FFFF;
+}
+
+[data-theme="cyberpunk-neon"] {
+  --brand-color: #FF00FF;
+  --accent-color: #00FF88;
 }
 
 html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
@@ -87,7 +112,9 @@ nav::after {
   z-index: 1;
 }
 .nav-logo-img {
-  height: 1.75rem;
+  height: 1.35rem;
+  max-height: 28px;
+  max-width: 120px;
   width: auto;
   object-fit: contain;
   display: block;
@@ -718,7 +745,9 @@ footer .footer-logo {
   margin-bottom: 0.75rem;
 }
 footer .footer-logo-img {
-  height: 1.5rem;
+  height: 1.25rem;
+  max-height: 24px;
+  max-width: 100px;
   width: auto;
   object-fit: contain;
   display: block;
@@ -1616,6 +1645,62 @@ footer p { font-size: clamp(0.6875rem, 2vw, 0.75rem); color: var(--grey-dim); }
 
 .history-overlay .overlay-btn-main {
   margin-top: 0;
+}
+
+/* ─── Demo theme switcher UI ─────────────────────────────────────────────── */
+.theme-switcher {
+  position: fixed;
+  bottom: calc(1rem + var(--safe-bottom));
+  right: calc(1rem + var(--safe-right));
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.theme-switcher-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+
+.theme-switcher-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.theme-switcher-btn {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--grey);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+  font-family: var(--font-body);
+  white-space: nowrap;
+}
+
+.theme-switcher-btn:hover {
+  color: var(--white);
+  border-color: var(--brand-color);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.theme-switcher-btn.active {
+  color: var(--brand-color);
+  border-color: var(--brand-color);
+  background: color-mix(in srgb, var(--brand-color) 18%, transparent);
 }
 
 /* ─── Responsive Adjustments ─────────────────────────────────────────────── */

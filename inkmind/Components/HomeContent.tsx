@@ -6,7 +6,7 @@ import InstagramPortfolio from "@/components/InstagramPortfolio";
 import BookingModal from "@/components/BookingModal";
 import { LOGO_PATH, LOGO_ALT } from "@/lib/branding";
 
-export default function HomeContent() {
+export default function HomeContent({ designGallerySlot }: { designGallerySlot?: React.ReactNode }) {
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
 
   return (
@@ -97,6 +97,13 @@ export default function HomeContent() {
             Describe what you want. Watch it come to life.
           </h2>
           <DesignStudio onOpenBooking={() => setBookingModalOpen(true)} />
+        </div>
+      </section>
+
+      {/* ─── MY DESIGNS (saved in DB, per user) — rendered as Server Component slot ─── */}
+      <section id="my-designs" className="studio">
+        <div className="section-inner">
+          {designGallerySlot}
         </div>
       </section>
 

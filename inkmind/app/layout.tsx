@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Playfair_Display, DM_Sans } from "next/font/google";
 import "./globals.css";
+import ThemeSwitcher from "@/components/ThemeSwitcher";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -39,6 +40,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning className="mobile-app-shell">
       <body className={`${playfair.variable} ${dmSans.variable}`} suppressHydrationWarning>
         {children}
+        <ThemeSwitcher />
       </body>
     </html>
   );

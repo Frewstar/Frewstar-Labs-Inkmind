@@ -8,16 +8,24 @@
     "start": "next start",
     "lint": "eslint",
     "clean": "node -e \"require('fs').rmSync('.next', {recursive: true, force: true})\"",
-    "reset": "npm run clean && next dev --webpack"
+    "reset": "npm run clean && next dev --webpack",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.72.1",
     "@calcom/embed-react": "^1.5.3",
     "@google/generative-ai": "^0.24.1",
+    "@prisma/client": "^6.9.0",
+    "@supabase/ssr": "^0.8.0",
+    "@supabase/supabase-js": "^2.94.0",
     "google-auth-library": "^10.5.0",
     "next": "16.1.6",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -27,6 +35,7 @@
     "dotenv": "^16.4.5",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "prisma": "^6.9.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
