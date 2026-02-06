@@ -11,6 +11,7 @@ type DesignGalleryClientProps = {
   designs: DesignGalleryItem[];
   unauthenticated?: boolean;
   noAccount?: boolean;
+  dbError?: string;
 };
 
 const FADE_MS = 200;
@@ -19,6 +20,7 @@ export default function DesignGalleryClient({
   designs,
   unauthenticated = false,
   noAccount = false,
+  dbError,
 }: DesignGalleryClientProps) {
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -67,6 +69,22 @@ export default function DesignGalleryClient({
         </h3>
         <p className="mt-2 text-[var(--grey)]">
           Create an account to save and revisit your designs.
+        </p>
+      </div>
+    );
+  }
+
+  if (dbError) {
+    return (
+      <div className="design-gallery-section rounded-[var(--radius-lg)] border border-amber-500/30 bg-[var(--bg-card)] p-8 text-center">
+        <h3 className="font-[var(--font-head)] text-xl font-semibold text-[var(--white)]">
+          My Designs
+        </h3>
+        <p className="mt-2 text-[var(--grey)]">{dbError}</p>
+        <p className="mt-2 text-sm text-[var(--grey)]">
+          Check your <code className="rounded bg-white/10 px-1">.env.local</code>{" "}
+          <code className="rounded bg-white/10 px-1">DATABASE_URL</code> and
+          that your Supabase project is running.
         </p>
       </div>
     );

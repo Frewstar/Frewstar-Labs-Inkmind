@@ -40,7 +40,10 @@ export default function StudioAdminDashboard({
   storageLimitBytes,
   storagePercent,
 }: Props) {
+  const router = useRouter();
   const [tab, setTab] = useState<"overview" | "users">("overview");
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const barColor =
     storagePercent < 70
@@ -99,6 +102,12 @@ export default function StudioAdminDashboard({
             User Management
           </button>
           <Link
+            href={`/${studio.slug}/settings/portfolio`}
+            className="px-4 py-2 text-sm font-medium text-[var(--grey)] hover:text-[var(--white)] transition rounded-t-[var(--radius)]"
+          >
+            Portfolio
+          </Link>
+          <Link
             href={`/${studio.slug}/settings`}
             className="px-4 py-2 text-sm font-medium text-[var(--grey)] hover:text-[var(--white)] transition rounded-t-[var(--radius)]"
           >
@@ -125,8 +134,11 @@ export default function StudioAdminDashboard({
 
             <div className="rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] overflow-hidden">
               <h2 className="px-4 py-3 text-sm font-semibold text-[var(--white)] border-b border-white/10">
-                Designs ({designs.length})
+                Final Design · Designs ({designs.length})
               </h2>
+              <p className="px-4 py-2 text-xs text-[var(--grey)] border-b border-white/10">
+                Mark a design as artist-ready by uploading your final drawing (JPG/PNG). Clients will see it at the top of the share page.
+              </p>
               {designs.length === 0 ? (
                 <div className="p-8 text-center text-[var(--grey)] text-sm">
                   No designs in this studio yet.
@@ -202,9 +214,9 @@ export default function StudioAdminDashboard({
                           onClick={() => fileInputRefs.current[d.id]?.click()}
                           disabled={!!uploadingId}
                           className="shrink-0 text-xs text-[var(--grey)] hover:text-[var(--gold)] transition disabled:opacity-50"
-                          title="Upload final render (JPG/PNG) to this design"
+                          title="Upload your final drawing (JPG/PNG); clients see it as Artist Drawing"
                         >
-                          {uploadingId === d.id ? "Uploading…" : d.finalImageUrl ? "Replace final" : "Upload Final Drawing"}
+                          {uploadingId === d.id ? "Uploading…" : d.finalImageUrl ? "Replace Artist Drawing" : "Mark as Artist Ready"}
                         </button>
                       </span>
                     </li>

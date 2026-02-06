@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import prisma from "@/lib/db";
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -401,6 +402,122 @@ export async function createStudioWithAdmin(
 export type UpdateStudioSettingsResult = { success?: boolean; error?: string };
 
 /**
+ * Update only the Ross / Artist Twin DNA fields. Used by StyleSettings.
+ * Studio admins only; revalidates settings and studio routes.
+ */
+const STYLE_ADHERENCE_MIN = 1.5;
+const STYLE_ADHERENCE_MAX = 5.0;
+
+export async function updateStudioRossSettings(
+  slug: string,
+  values: {
+    aiName: string;
+    voiceTone: string;
+    personality: string;
+    specialties: string;
+    styleAdherence?: number;
+  }
+): Promise<UpdateStudioSettingsResult> {
+  try {
+    const supabase = await createClient();
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser?.id) return { error: "You must be signed in." };
+
+    const studio = await prisma.studios.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+    if (!studio) return { error: "Studio not found." };
+
+    const profile = await prisma.profiles.findUnique({
+      where: { id: authUser.id },
+      select: { role: true, studio_id: true },
+    });
+    const isStudioAdmin =
+      profile?.studio_id === studio.id && profile?.role === "STUDIO_ADMIN";
+    if (!isStudioAdmin) return { error: "You do not have permission to edit this studio." };
+
+    const ai_name = (values.aiName ?? "").trim() || null;
+    const artist_voice_tone = (values.voiceTone ?? "").trim() || null;
+    const ai_personality_prompt = (values.personality ?? "").trim() || null;
+    const studio_specialties = (values.specialties ?? "")
+      .split(/[\n,]+/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const rawAdherence = values.styleAdherence;
+    const style_adherence =
+      rawAdherence != null
+        ? Math.min(
+            STYLE_ADHERENCE_MAX,
+            Math.max(STYLE_ADHERENCE_MIN, Number(rawAdherence))
+          )
+        : null;
+
+    await prisma.studios.update({
+      where: { id: studio.id },
+      data: {
+        ai_name,
+        artist_voice_tone,
+        ai_personality_prompt,
+        studio_specialties,
+        ...(style_adherence != null && { style_adherence }),
+        updated_at: new Date(),
+      },
+    });
+
+    revalidatePath(`/${slug}`);
+    revalidatePath(`/${slug}/settings`);
+    return { success: true };
+  } catch (err) {
+    console.error("[InkMind] updateStudioRossSettings error:", err);
+    return { error: err instanceof Error ? err.message : "Failed to save." };
+  }
+}
+
+/**
+ * Update only the studio's Ross personality (e.g. after Style DNA extraction).
+ * Fills the Personality textarea in Style Settings so Ross uses the extracted style guide.
+ */
+export async function updateStudioPersonality(
+  slug: string,
+  personality: string
+): Promise<UpdateStudioSettingsResult> {
+  try {
+    const supabase = await createClient();
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser?.id) return { error: "You must be signed in." };
+
+    const studio = await prisma.studios.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+    if (!studio) return { error: "Studio not found." };
+
+    const profile = await prisma.profiles.findUnique({
+      where: { id: authUser.id },
+      select: { role: true, studio_id: true },
+    });
+    const isStudioAdmin =
+      profile?.studio_id === studio.id && profile?.role === "STUDIO_ADMIN";
+    if (!isStudioAdmin) return { error: "You do not have permission to edit this studio." };
+
+    const ai_personality_prompt = (personality ?? "").trim() || null;
+
+    await prisma.studios.update({
+      where: { id: studio.id },
+      data: { ai_personality_prompt, updated_at: new Date() },
+    });
+
+    revalidatePath(`/${slug}`);
+    revalidatePath(`/${slug}/settings`);
+    return { success: true };
+  } catch (err) {
+    console.error("[InkMind] updateStudioPersonality error:", err);
+    return { error: err instanceof Error ? err.message : "Failed to save." };
+  }
+}
+
+/**
  * Update studio contact/social settings. Only allowed if the current user is STUDIO_ADMIN for this studio.
  * Uses revalidatePath to refresh the studio dashboard and settings page.
  */
@@ -442,6 +559,9 @@ export async function updateStudioSettings(
     const contact_email = (formData.get("contact_email") as string)?.trim() || null;
     const contact_phone = (formData.get("contact_phone") as string)?.trim() || null;
     const address = (formData.get("address") as string)?.trim() || null;
+    const ai_name = (formData.get("ai_name") as string)?.trim() || null;
+    const artist_voice_tone = (formData.get("artist_voice_tone") as string)?.trim() || null;
+    const ai_personality_prompt = (formData.get("ai_personality_prompt") as string)?.trim() || null;
 
     const logoFile = formData.get("logo");
     let logo_url: string | null = null;
@@ -471,6 +591,9 @@ export async function updateStudioSettings(
       updated_at: new Date(),
     };
     if (logo_url !== null) updateData.logo_url = logo_url;
+    if (ai_name !== undefined) updateData.ai_name = ai_name;
+    if (artist_voice_tone !== undefined) updateData.artist_voice_tone = artist_voice_tone;
+    if (ai_personality_prompt !== undefined) updateData.ai_personality_prompt = ai_personality_prompt;
 
     await prisma.studios.update({
       where: { id: studio.id },
@@ -484,6 +607,115 @@ export async function updateStudioSettings(
     console.error("[Studio Settings] updateStudioSettings error:", err);
     return {
       error: err instanceof Error ? err.message : "Failed to save settings.",
+    };
+  }
+}
+
+// ─── Studio portfolio (AI style references) ─────────────────────────────────
+
+const PORTFOLIO_BUCKET = "studio-portfolios";
+const PORTFOLIO_ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const PORTFOLIO_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+
+export type AddStudioPortfolioResult = { success?: boolean; error?: string };
+
+/**
+ * Upload an image to studio-portfolios bucket and save metadata to studio_portfolio.
+ * Only studio admins for the given studio (by slug) can add entries.
+ */
+export async function addStudioPortfolioEntry(
+  slug: string,
+  formData: FormData
+): Promise<AddStudioPortfolioResult> {
+  try {
+    const supabase = await createClient();
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser?.id) {
+      return { error: "You must be signed in to add portfolio entries." };
+    }
+
+    const studio = await prisma.studios.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+    if (!studio) return { error: "Studio not found." };
+
+    const profile = await prisma.profiles.findUnique({
+      where: { id: authUser.id },
+      select: { role: true, studio_id: true },
+    });
+    const isStudioAdmin =
+      profile?.studio_id === studio.id && profile?.role === "STUDIO_ADMIN";
+    if (!isStudioAdmin) {
+      return { error: "Only studio admins can add portfolio entries." };
+    }
+
+    const file = formData.get("file") ?? formData.get("image");
+    if (!file || !(file instanceof File)) {
+      return { error: "Please select an image (JPG, PNG or WebP)." };
+    }
+    if (!PORTFOLIO_ALLOWED_TYPES.includes(file.type)) {
+      return { error: "Only JPG, PNG and WebP are allowed." };
+    }
+    if (file.size > PORTFOLIO_MAX_BYTES) {
+      return { error: "Image must be under 10 MB." };
+    }
+
+    const title = (formData.get("title") as string)?.trim() || null;
+    const styleTagsRaw = (formData.get("style_tags") as string)?.trim() || "";
+    const style_tags = styleTagsRaw
+      ? styleTagsRaw.split(/[\n,]+/).map((t) => t.trim()).filter(Boolean)
+      : [];
+    const technical_notes = (formData.get("technical_notes") as string)?.trim() || null;
+
+    const ext = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+    const path = `${studio.id}/${randomUUID()}.${ext}`;
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    const { error: uploadError } = await supabase.storage
+      .from(PORTFOLIO_BUCKET)
+      .upload(path, buffer, {
+        contentType: file.type,
+        cacheControl: "3600",
+        upsert: false,
+        metadata: { studio_id: studio.id },
+      });
+
+    if (uploadError) {
+      console.error("[Portfolio] upload error:", uploadError);
+      return { error: uploadError.message || "Upload failed. Ensure the studio-portfolios bucket exists." };
+    }
+
+    const { data: urlData } = supabase.storage.from(PORTFOLIO_BUCKET).getPublicUrl(path);
+    const image_url = urlData.publicUrl;
+
+    // Run Ross Style Analysis on the uploaded image to generate "Style Instructions" DNA when none provided
+    let notesToSave = technical_notes;
+    if (!notesToSave?.trim()) {
+      const { getRossStyleAnalysis } = await import("@/app/actions/ross");
+      const analysis = await getRossStyleAnalysis(image_url);
+      if (analysis.data?.trim()) notesToSave = analysis.data;
+    }
+
+    await prisma.studio_portfolio.create({
+      data: {
+        studio_id: studio.id,
+        image_url,
+        title,
+        style_tags,
+        technical_notes: notesToSave || null,
+      },
+    });
+
+    revalidatePath(`/${slug}`);
+    revalidatePath(`/${slug}/settings`);
+    revalidatePath(`/${slug}/settings/portfolio`);
+    return { success: true };
+  } catch (err) {
+    console.error("[Portfolio] addStudioPortfolioEntry error:", err);
+    return {
+      error: err instanceof Error ? err.message : "Failed to add portfolio entry.",
     };
   }
 }

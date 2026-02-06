@@ -11,12 +11,17 @@ export default async function StudioSlugLayout({
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const profile = user?.id
-    ? await prisma.profiles.findUnique({
+  let profile: { daily_generations: number } | null = null;
+  if (user?.id) {
+    try {
+      profile = await prisma.profiles.findUnique({
         where: { id: user.id },
         select: { daily_generations: true },
-      })
-    : null;
+      });
+    } catch {
+      profile = null;
+    }
+  }
 
   return (
     <div className="flex min-h-[100dvh] w-full">

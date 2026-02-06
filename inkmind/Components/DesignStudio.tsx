@@ -10,11 +10,16 @@ import HistorySkeleton from "./HistorySkeleton";
 import { getFirstTattooPhotos, getRandomTattooPhotos } from "@/lib/tattoo-photos";
 import { promptToDownloadFilename } from "@/lib/download-filename";
 import { TATTOO_STYLES } from "@/lib/tattoo-styles";
+import { getRossAdvice, getRossImageReview, type RossImageReviewResponse } from "@/app/actions/ross";
+import ModelSelector, { type ModelOption } from "./ModelSelector";
+import TattooDesignImage from "./TattooDesignImage";
 
 export type DesignStudioProps = {
   onOpenBooking?: () => void;
   /** When set (e.g. on studio slug page), generations are saved to this studio. */
   studioSlug?: string | null;
+  /** When set, Ross assistant uses this studio's ai_name and ai_personality_prompt (white-label). */
+  studioId?: string | null;
 };
 
 // ─── Saved Design Library (localStorage) ─────────────────────────────────────
@@ -187,7 +192,7 @@ function HeartIcon({ filled }: { filled: boolean }) {
 
 // ─── COMPONENT ───────────────────────────────────────────────────────────────
 
-export default function DesignStudio({ onOpenBooking: externalOpenBooking }: DesignStudioProps = {}) {
+export default function DesignStudio({ onOpenBooking: externalOpenBooking, studioSlug, studioId }: DesignStudioProps = {}) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [selectedStyle, setSelectedStyle] = useState("fine-line");
@@ -196,7 +201,7 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorConsoleUrl, setErrorConsoleUrl] = useState<string | null>(null);
-  const [isPaid, setIsPaid] = useState(false); // High Quality (Paid Tier)
+  const [model, setModel] = useState<ModelOption>("basic"); // basic = Schnell, standard = Gemini, high = Vertex
   const [isManualMode, setIsManualMode] = useState(false); // Manual prompt vs Wizard
   const [manualPrompt, setManualPrompt] = useState("");
   const [manualPlacement, setManualPlacement] = useState("Forearm");
@@ -215,12 +220,25 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
   const [branchFromDesignId, setBranchFromDesignId] = useState<string | null>(null);
   /** Img2Img strength 0.1–1.0: lower = stay closer to reference, higher = more freedom. Only used when refImage is set. */
   const [referenceStrength, setReferenceStrength] = useState(0.5);
+  /** FLUX Style Adherence 1.5–5.0: only used when model is Basic (Schnell). Sent as styleStrength to API. */
+  const [styleStrength, setStyleStrength] = useState(3.0);
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
   const [loadingStatusIndex, setLoadingStatusIndex] = useState(0);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [placeholderImages, setPlaceholderImages] = useState<string[]>(() => getFirstTattooPhotos(6));
   const [hasMounted, setHasMounted] = useState(false);
   const [newGalleryName, setNewGalleryName] = useState("");
+  // Ross Assistant: suggestions + longevity tip (debounced 2s after user stops typing)
+  const [rossSuggestions, setRossSuggestions] = useState<string[]>([]);
+  const [rossLongevityAlert, setRossLongevityAlert] = useState<string | null>(null);
+  const [rossLoading, setRossLoading] = useState(false);
+  const [rossError, setRossError] = useState<string | null>(null);
+  // Ross image review (Help mode): fixes for the selected generated image
+  const [rossReviewFixes, setRossReviewFixes] = useState<RossImageReviewResponse | null>(null);
+  const [rossReviewLoading, setRossReviewLoading] = useState(false);
+  const [rossReviewError, setRossReviewError] = useState<string | null>(null);
+  /** Index of the design that was reviewed (so Apply Fixes uses that image as ref). */
+  const [rossReviewedImageIndex, setRossReviewedImageIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const refFileRef = useRef<File | null>(null);
   const promptSectionRef = useRef<HTMLDivElement>(null);
@@ -290,6 +308,42 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
     }, 60000);
     return () => clearInterval(interval);
   }, [hasMounted, showPlaceholders]);
+
+  // Ross Assistant: when user stops typing for 2s in manual prompt, fetch suggestions + longevity tip
+  useEffect(() => {
+    if (!isManualMode) {
+      setRossSuggestions([]);
+      setRossLongevityAlert(null);
+      setRossError(null);
+      return;
+    }
+    const trimmed = manualPrompt.trim();
+    if (trimmed.length < 2) {
+      setRossSuggestions([]);
+      setRossLongevityAlert(null);
+      setRossError(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      setRossLoading(true);
+      setRossError(null);
+      getRossAdvice(trimmed, studioId ?? undefined)
+        .then((result) => {
+          if (result.error) {
+            setRossError(result.error);
+            setRossSuggestions([]);
+            setRossLongevityAlert(null);
+            return;
+          }
+          if (result.data) {
+            setRossSuggestions(result.data.suggestions ?? []);
+            setRossLongevityAlert(result.data.longevityAlert ?? null);
+          }
+        })
+        .finally(() => setRossLoading(false));
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [isManualMode, manualPrompt]);
 
   // Load design from "Tweak this Design" (?tweak=id) — My Designs gallery
   useEffect(() => {
@@ -455,8 +509,12 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
     e.target.value = "";
   };
 
-  // Wizard completion handler
-  const handleWizardComplete = async (finalPrompt: string, placement: string) => {
+  // Wizard completion handler. referenceImageOverride: when set (e.g. from Apply Fixes), use this as the ref image.
+  const handleWizardComplete = async (
+    finalPrompt: string,
+    placement: string,
+    referenceImageOverride?: string
+  ) => {
     setLoading(true);
     setError(null);
     setErrorConsoleUrl(null);
@@ -480,11 +538,12 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
         referenceImageUrl = uploadJson.url;
       }
 
-      // Use uploaded ref URL, or refImage as URL (e.g. from "Use as reference" on a generated design)
+      // Prefer override (e.g. from Ross Apply Fixes), then uploaded ref, then refImage state
+      const refSource = referenceImageOverride ?? refImage;
       const refUrl =
-        referenceImageUrl ?? (refImage?.startsWith("http") ? refImage : undefined);
+        referenceImageUrl ?? (refSource?.startsWith("http") ? refSource : undefined);
       const refData =
-        !refUrl && refImage && !refImage.startsWith("http") ? refImage : undefined;
+        !refUrl && refSource && !refSource.startsWith("http") ? refSource : undefined;
       const hasReference = !!refUrl || !!refData;
 
       const res = await fetch("/api/generate", {
@@ -495,8 +554,11 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
           style: selectedStyle,
           placement,
           count: designCount,
-          isPaid,
+          model,
+          isPaid: model === "high",
           ...(studioSlug && { studioSlug }),
+          // Explicit user override for FLUX; backend uses studio default only when this is omitted
+          ...(model === "basic" && { styleStrength }),
           ...(refUrl && { referenceImageUrl: refUrl }),
           ...(refData && { referenceImage: refData }),
           ...(hasReference && { referenceStrength }),
@@ -509,12 +571,15 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
         setErrorConsoleUrl(data.code === "GCP_IAM_REQUIRED" ? data.consoleUrl ?? null : null);
         return;
       }
+      // When using Basic (Schnell), the API persists Replicate URLs via persistGeneratedTattoo and returns permanent Supabase URLs
       const newDesigns = Array.isArray(data.designs) ? data.designs : [];
       setDesigns(newDesigns);
       setLastGenerationPrompt(finalPrompt);
       setLastGenerationStyle(selectedStyle);
       setSavedInSession(new Set());
       setBranchFromDesignId(null);
+      setRossReviewFixes(null);
+      setRossReviewedImageIndex(null);
       saveLastGeneration(newDesigns, finalPrompt, selectedStyle);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
@@ -543,6 +608,9 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
           ))}
         </div>
 
+        {/* Which model generates the images — keep visible so users don't miss it */}
+        <ModelSelector value={model} onChange={setModel} />
+
         {/* Generation count selector */}
         <div style={{ marginTop: 24 }}>
           <label style={{ marginBottom: 8, display: "block" }}>Number of Designs</label>
@@ -565,57 +633,50 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
           </p>
         </div>
 
-        {/* High Quality (Paid Tier) toggle */}
-        <div style={{ marginTop: 24 }}>
-          <label
-            htmlFor="high-quality-toggle"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              cursor: "pointer",
-              fontSize: 14,
-              fontWeight: 500,
-            }}
-          >
-            <button
-              id="high-quality-toggle"
-              type="button"
-              role="switch"
-              aria-checked={isPaid}
-              onClick={() => setIsPaid((p) => !p)}
-              style={{
-                width: 44,
-                height: 24,
-                borderRadius: 12,
-                border: "none",
-                background: isPaid ? "linear-gradient(135deg, #c9a227 0%, #e8b45a 100%)" : "#333",
-                position: "relative",
-                cursor: "pointer",
-                transition: "background 0.2s",
-              }}
-            >
+        {/* Style Adherence (DNA) — only for Basic / FLUX Schnell. 1.5–2.5 Creative, 3.0 Balanced, 4–5 Strict. */}
+        {model === "basic" && (
+          <div className="space-y-3 pt-4 border-t" style={{ borderColor: "var(--gold-dim)" }}>
+            <div className="flex justify-between items-center">
+              <label
+                htmlFor="style-strength"
+                className="text-xs font-semibold uppercase tracking-wider"
+                style={{ color: "var(--gold)" }}
+              >
+                Style Adherence (DNA)
+              </label>
               <span
+                className="text-xs font-mono px-2 py-0.5 rounded border"
                 style={{
-                  position: "absolute",
-                  top: 2,
-                  left: isPaid ? 22 : 2,
-                  width: 20,
-                  height: 20,
-                  borderRadius: "50%",
-                  background: "#fff",
-                  transition: "left 0.2s",
+                  color: "rgba(232,180,90,0.95)",
+                  background: "var(--gold-dim)",
+                  borderColor: "rgba(232,180,90,0.25)",
                 }}
-              />
-            </button>
-            <span style={{ color: isPaid ? "#e8b45a" : "inherit" }}>
-              High Quality {isPaid && "✨"}
-            </span>
-          </label>
-          <p style={{ marginTop: 4, fontSize: 12, color: "#888" }}>
-            {isPaid ? "Uses Vertex AI (Paid tier) for higher quality." : "Standard quality (free tier)."}
-          </p>
-        </div>
+              >
+                {styleStrength.toFixed(1)}x
+              </span>
+            </div>
+            <input
+              id="style-strength"
+              type="range"
+              min={1.5}
+              max={5}
+              step={0.1}
+              value={styleStrength}
+              onChange={(e) => setStyleStrength(Number(e.target.value))}
+              className="w-full h-2 rounded-full appearance-none cursor-pointer"
+              style={{ accentColor: "var(--gold)" }}
+              aria-label="Style adherence (DNA)"
+            />
+            <p
+              className="text-[10px] flex justify-between px-1 italic"
+              style={{ color: "var(--grey)" }}
+            >
+              <span>Creative</span>
+              <span style={{ color: "rgba(232,180,90,0.7)" }}>Balanced</span>
+              <span>Strict DNA</span>
+            </p>
+          </div>
+        )}
 
         {/* Reference Image Upload */}
         <div style={{ marginTop: 24 }}>
@@ -783,6 +844,35 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                     placeholder="e.g. A fine-line blackwork raven with geometric patterns, bold and minimal, for forearm placement"
                     disabled={loading}
                   />
+                  {/* Ross Assistant: style suggestion chips (not a chat box) */}
+                  <div className="mt-3 rounded-lg bg-zinc-900/80 border border-white/10 p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-sm font-medium text-zinc-300">Ross Assistant</span>
+                      {rossLoading && (
+                        <span className="text-xs text-zinc-500">Thinking…</span>
+                      )}
+                      {rossError && (
+                        <span className="text-xs text-amber-500/90">{rossError}</span>
+                      )}
+                    </div>
+                    {rossSuggestions.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {rossSuggestions.map((s, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => {
+                              const sep = manualPrompt.trim().endsWith(",") || !manualPrompt.trim() ? "" : ", ";
+                              setManualPrompt((p) => p.trim() + sep + s);
+                            }}
+                            className="px-3 py-1.5 rounded-md text-sm border border-white/10 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:border-amber-500/30 hover:text-amber-400/90 transition-colors"
+                          >
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
               <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
@@ -805,6 +895,12 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                     <option key={p} value={p}>{p}</option>
                   ))}
                 </select>
+                {rossLongevityAlert && (
+                  <div className="flex-1 min-w-[200px] rounded-lg bg-zinc-900 border border-amber-500/20 p-3 text-sm text-amber-400/95">
+                    <span className="font-medium text-amber-400/90">Artist tip</span>
+                    <p className="mt-1 text-amber-200/80">{rossLongevityAlert}</p>
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => handleWizardComplete(manualPrompt.trim(), manualPlacement)}
@@ -820,7 +916,7 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
             <ConversationalWizard
               onComplete={handleWizardComplete}
               selectedStyle={selectedStyle}
-              isPaid={isPaid}
+              isPaid={model === "high"}
               disclaimerAccepted={disclaimerAccepted}
               onPromptChange={(prompt, placement) => {
                 setLastWizardPrompt(prompt);
@@ -918,7 +1014,7 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                   tabIndex={0}
                   onKeyDown={(e) => e.key === "Enter" && setLightboxImage(dataUrl)}
                 >
-                  <img
+                  <TattooDesignImage
                     src={dataUrl}
                     alt={`Generated tattoo design ${i + 1}`}
                     className="gallery-card-img"
@@ -965,6 +1061,30 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                       </button>
                       <button
                         type="button"
+                        className="overlay-btn overlay-btn-edit"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRossReviewError(null);
+                          setRossReviewLoading(true);
+                          setRossReviewedImageIndex(i);
+                          getRossImageReview(dataUrl, lastGenerationPrompt || manualPrompt || "")
+                            .then((result) => {
+                              if (result.error) {
+                                setRossReviewError(result.error);
+                                setRossReviewFixes(null);
+                                return;
+                              }
+                              if (result.data) setRossReviewFixes(result.data);
+                            })
+                            .finally(() => setRossReviewLoading(false));
+                        }}
+                        disabled={rossReviewLoading}
+                        title="Get Ross’s feedback on shading, linework, and color"
+                      >
+                        {rossReviewLoading && rossReviewedImageIndex === i ? "…" : "Ross Review"}
+                      </button>
+                      <button
+                        type="button"
                         className="overlay-btn-main"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -978,6 +1098,47 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking }: Des
                 </div>
               ))}
         </div>
+        )}
+
+        {/* Ross Correction List — shown after Ross Review, with Apply Fixes */}
+        {designs.length > 0 && rossReviewFixes && (
+          <div className="mt-4 rounded-lg bg-zinc-900 border border-white/10 p-4">
+            <h4 className="text-sm font-medium text-zinc-300 mb-2">Correction List</h4>
+            <ul className="space-y-1.5 text-sm text-zinc-200 mb-4">
+              <li><span className="text-amber-400/90 font-medium">Shading:</span> {rossReviewFixes.shadingFix}</li>
+              <li><span className="text-amber-400/90 font-medium">Linework:</span> {rossReviewFixes.lineFix}</li>
+              <li><span className="text-amber-400/90 font-medium">Color:</span> {rossReviewFixes.colorFix}</li>
+            </ul>
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  if (rossReviewedImageIndex == null) return;
+                  const refImageUrl = designs[rossReviewedImageIndex];
+                  const refinementPrompt = `Refine with corrections: ${rossReviewFixes.shadingFix}. ${rossReviewFixes.lineFix}. ${rossReviewFixes.colorFix}.`;
+                  setRefImage(refImageUrl);
+                  setIsManualMode(true);
+                  setManualPrompt(refinementPrompt);
+                  setRossReviewFixes(null);
+                  setRossReviewedImageIndex(null);
+                  handleWizardComplete(refinementPrompt, manualPlacement, refImageUrl);
+                  setTimeout(() => promptSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+                }}
+                disabled={loading}
+                className="px-4 py-2 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-400 hover:bg-amber-500/30 transition-colors text-sm font-medium"
+              >
+                Apply Fixes
+              </button>
+              <button
+                type="button"
+                onClick={() => { setRossReviewFixes(null); setRossReviewedImageIndex(null); setRossReviewError(null); }}
+                className="text-sm text-zinc-400 hover:text-zinc-200"
+              >
+                Dismiss
+              </button>
+            </div>
+            {rossReviewError && <p className="mt-2 text-sm text-amber-500/90">{rossReviewError}</p>}
+          </div>
         )}
 
         {/* Your Galleries — skeleton while hydrating; after mount always show so user can create galleries before generating */}

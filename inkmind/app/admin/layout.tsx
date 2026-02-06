@@ -16,10 +16,16 @@ export default async function AdminLayout({
     redirect("/");
   }
 
-  const profile = await prisma.profiles.findUnique({
-    where: { id: authUser.id },
-    select: { id: true, is_admin: true, role: true },
-  });
+  let profile: { id: string; is_admin: boolean; role: string | null } | null = null;
+  try {
+    profile = await prisma.profiles.findUnique({
+      where: { id: authUser.id },
+      select: { id: true, is_admin: true, role: true },
+    });
+  } catch {
+    // Database unreachable
+    redirect("/");
+  }
 
   const isAdmin = profile?.is_admin || profile?.role === "SUPER_ADMIN";
   if (!profile || !isAdmin) {

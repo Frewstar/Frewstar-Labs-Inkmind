@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/my-replicate-app/node_modules
 /.pnp
 .pnp.*
 .yarn/*

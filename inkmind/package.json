@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "flux-schnell": "node scripts/run-flux-schnell.mjs",
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
@@ -15,19 +16,25 @@
     "db:studio": "prisma studio"
   },
   "dependencies": {
+    "@ai-sdk/google": "^3.0.21",
     "@anthropic-ai/sdk": "^0.72.1",
     "@calcom/embed-react": "^1.5.3",
     "@google/generative-ai": "^0.24.1",
+    "@hookform/resolvers": "^5.2.2",
     "@prisma/client": "^6.9.0",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.94.0",
+    "ai": "^6.0.71",
     "google-auth-library": "^10.5.0",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-hook-form": "^7.71.1",
+    "replicate": "^1.4.0",
     "server-only": "^0.0.1",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

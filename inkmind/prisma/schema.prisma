@@ -415,24 +415,25 @@ model users {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model designs {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  profile_id          String    @db.Uuid
-  studio_id           String    @db.Uuid
-  image_url           String?
-  prompt              String?
-  status              String    @default("pending")
-  created_at          DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
-  is_starred          Boolean   @default(false)
-  reference_image_url String?
-  parent_id           String?   @db.Uuid
-  iteration_strength  Float?    @default(0.7)
-  /** Artist-uploaded final render (Procreate/Photoshop) stored in final-tattoos bucket. */
-  final_image_url     String?
-  parent              designs?  @relation("DesignParent", fields: [parent_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  children            designs[] @relation("DesignParent")
-  profiles            profiles  @relation(fields: [profile_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  studios             studios   @relation(fields: [studio_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profile_id           String    @db.Uuid
+  studio_id            String    @db.Uuid
+  image_url            String?
+  prompt               String?
+  status               String    @default("pending")
+  created_at           DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime  @default(now()) @db.Timestamptz(6)
+  is_starred           Boolean   @default(false)
+  reference_image_url  String?
+  parent_id            String?   @db.Uuid
+  iteration_strength   Float?    @default(0.7)
+  /// * Artist-uploaded final render (Procreate/Photoshop) stored in final-tattoos bucket.
+  final_image_url      String?
+  is_visible_to_client Boolean?  @default(false)
+  parent               designs?  @relation("DesignParent", fields: [parent_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children             designs[] @relation("DesignParent")
+  profiles             profiles  @relation(fields: [profile_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  studios              studios   @relation(fields: [studio_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([profile_id])
   @@index([status])
@@ -461,21 +462,42 @@ model profiles {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model studios {
-  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  slug          String     @unique
-  name          String
-  logo_url      String?
-  theme_config  Json?      @default("{}")
-  created_at    DateTime   @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime   @default(now()) @db.Timestamptz(6)
-  instagram_url String?
-  facebook_url  String?
-  contact_email String?
-  contact_phone String?
-  website_url   String?
-  address       String?
-  designs       designs[]
-  profiles      profiles[]
+  id                    String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug                  String             @unique
+  name                  String
+  logo_url              String?
+  theme_config          Json?              @default("{}")
+  created_at            DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime           @default(now()) @db.Timestamptz(6)
+  instagram_url         String?
+  facebook_url          String?
+  contact_email         String?
+  contact_phone         String?
+  website_url           String?
+  address               String?
+  ai_name               String?            @default("Ross")
+  ai_personality_prompt String?
+  studio_specialties    String[]
+  artist_voice_tone     String?            @default("Professional")
+  /// FLUX guidance_scale 1.5–5.0: DNA strength for image generation
+  style_adherence       Float?             @default(3.0)
+  designs               designs[]
+  profiles              profiles[]
+  studio_portfolio      studio_portfolio[]
+
+  @@schema("public")
+}
+
+/// High-end studio portfolio pieces for AI reference (Artist Twin). Links images to a studio with technical metadata.
+model studio_portfolio {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studio_id       String?   @db.Uuid
+  image_url       String
+  title           String?
+  style_tags      String[]
+  technical_notes String?
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  studios         studios?  @relation(fields: [studio_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@schema("public")
 }

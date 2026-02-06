@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
 import { Clipboard, Check, Share2, Star } from "lucide-react";
@@ -140,21 +141,27 @@ export default function DesignGalleryCard({ design }: { design: DesignGalleryIte
           >
             <div className="flex-1 flex flex-col items-center justify-center min-w-0">
               <span className="text-[10px] uppercase text-[var(--grey)] mb-1">Inspired by</span>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={design.referenceImageUrl}
-                alt="Reference"
-                className="max-w-full max-h-full object-contain rounded-[var(--radius)] border border-white/10"
-              />
+              <div className="relative w-full aspect-square max-h-full">
+                <Image
+                  src={design.referenceImageUrl}
+                  alt="Reference"
+                  fill
+                  className="object-contain rounded-[var(--radius)] border border-white/10"
+                  unoptimized
+                  sizes="(max-width: 768px) 50vw, 200px"
+                />
+              </div>
             </div>
-            <div className="flex-1 flex flex-col items-center justify-center min-w-0">
+            <div className="flex-1 flex flex-col items-center justify-center min-w-0 relative">
               <span className="text-[10px] uppercase text-[var(--grey)] mb-1">Result</span>
-              <div className="tattoo-watermark-wrap max-w-full max-h-full">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+              <div className="tattoo-watermark-wrap max-w-full max-h-full relative aspect-square w-full">
+                <Image
                   src={design.imageUrl}
                   alt=""
-                  className="max-w-full max-h-full object-contain rounded-[var(--radius)] border border-white/10"
+                  fill
+                  className="object-contain rounded-[var(--radius)] border border-white/10"
+                  unoptimized
+                  sizes="(max-width: 768px) 50vw, 200px"
                 />
                 <span className="tattoo-watermark" aria-hidden>InkMind</span>
               </div>
@@ -169,12 +176,14 @@ export default function DesignGalleryCard({ design }: { design: DesignGalleryIte
             </button>
           </div>
         )}
-        <div className="tattoo-watermark-wrap w-full h-full flex items-center justify-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+        <div className="tattoo-watermark-wrap absolute inset-0 flex items-center justify-center">
+          <Image
             src={design.imageUrl}
             alt={design.prompt.slice(0, 60)}
-            className="w-full h-full object-contain"
+            fill
+            className="object-contain"
+            unoptimized
+            sizes="(max-width: 768px) 100vw, 320px"
           />
           <span className="tattoo-watermark" aria-hidden>InkMind</span>
         </div>

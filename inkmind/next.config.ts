@@ -12,6 +12,8 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "*.cdninstagram.com", port: "", pathname: "/**" },
       { protocol: "https", hostname: "*.fbcdn.net", port: "", pathname: "/**" },
       { protocol: "https", hostname: "images.unsplash.com", port: "", pathname: "/**" },
+      { protocol: "https", hostname: "replicate.delivery", port: "", pathname: "/**" },
+      { protocol: "https", hostname: "*.supabase.co", port: "", pathname: "/storage/**" },
     ],
   },
 };

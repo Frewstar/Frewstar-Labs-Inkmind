@@ -30,10 +30,23 @@ export async function POST(
       );
     }
 
-    const design = await prisma.designs.findUnique({
-      where: { id: designId },
-      select: { id: true, studio_id: true },
-    });
+    let design: { id: string; studio_id: string | null } | null = null;
+    let profile: { role: string | null; studio_id: string | null } | null = null;
+    try {
+      design = await prisma.designs.findUnique({
+        where: { id: designId },
+        select: { id: true, studio_id: true },
+      });
+      profile = await prisma.profiles.findUnique({
+        where: { id: authUser.id },
+        select: { role: true, studio_id: true },
+      });
+    } catch {
+      return NextResponse.json(
+        { error: "Service unavailable", message: "Database is temporarily unreachable." },
+        { status: 503 }
+      );
+    }
 
     if (!design) {
       return NextResponse.json(
@@ -41,11 +54,6 @@ export async function POST(
         { status: 404 }
       );
     }
-
-    const profile = await prisma.profiles.findUnique({
-      where: { id: authUser.id },
-      select: { role: true, studio_id: true },
-    });
 
     const isStudioAdmin =
       profile?.studio_id === design.studio_id &&

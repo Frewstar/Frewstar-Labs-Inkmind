@@ -43,34 +43,32 @@ export default function ShareView({
 
   return (
     <div className="space-y-6">
-      {/* The Finished Design — artist upload (when present) */}
+      {/* Artist Drawing — artist-uploaded final (when present); large frame at top */}
       {hasFinal && (
-        <div className="rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] overflow-hidden">
-          <h2 className="px-4 py-3 text-sm font-semibold text-[var(--white)] border-b border-white/10">
-            The Finished Design
+        <section className="rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] overflow-hidden">
+          <h2 className="px-4 py-3 text-sm font-semibold uppercase tracking-wider text-[var(--gold)] border-b border-white/10">
+            Artist Drawing
           </h2>
-          <div className="relative bg-[var(--bg)] p-4 flex justify-center">
-            <div className="tattoo-watermark-wrap">
+          <div className="relative bg-[var(--bg)] p-6 flex justify-center min-h-[280px]">
+            <div className="tattoo-watermark-wrap w-full flex justify-center">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={finalImageUrl!}
-                alt="Finished design"
-                className="max-h-[70vh] w-auto max-w-full object-contain"
+                alt="Artist final drawing"
+                className="max-h-[85vh] w-auto max-w-full object-contain"
               />
               <span className="tattoo-watermark" aria-hidden>InkMind</span>
             </div>
           </div>
-        </div>
+        </section>
       )}
 
-      {/* The Evolution — AI concepts / iterations */}
+      {/* Discovery & Process — AI / Ross concepts and iterations */}
       {imageUrl && (
       <div className="rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] overflow-hidden">
-        {hasFinal && (
-          <h2 className="px-4 py-3 text-sm font-semibold text-[var(--white)] border-b border-white/10">
-            The Evolution
-          </h2>
-        )}
+        <h2 className="px-4 py-3 text-sm font-semibold text-[var(--white)] border-b border-white/10">
+          Discovery & Process
+        </h2>
         {hasReference && (
           <div className="flex border-b border-white/10">
             <button

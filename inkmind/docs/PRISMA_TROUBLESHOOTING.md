@@ -47,6 +47,16 @@ Required in `.env` / `.env.local`:
 - **DIRECT_URL** — Direct Postgres for migrations.  
   Example: `postgresql://postgres:PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres`
 
+**"FATAL: Tenant or user not found"** (e.g. when running `npx prisma db pull` or at runtime):
+
+1. Open **Supabase Dashboard** → your project → **Project Settings** (gear) → **Database**.
+2. Scroll to **Connection pooler** and find the **Session** or **Transaction** connection string (URI).
+3. Copy that URI exactly — the host may be `aws-0-eu-west-1`, `aws-1-eu-west-1`, or another region. Do not guess; use the one shown.
+4. Set **DATABASE_URL** and **DIRECT_URL** in `.env` to that URI (use Session, port 5432, for both if possible). For Transaction (port 6543) add `?pgbouncer=true` to DATABASE_URL.
+5. Restart the dev server and/or run `npx prisma db pull` again.
+
+Prisma uses **DIRECT_URL** for introspection (`db pull`) and migrations. If the pooler still fails, you can set **DIRECT_URL** to the **direct** connection (`postgresql://postgres:PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres`) and run `db pull` only from a network where the direct host is reachable (e.g. after resolving IPv6 or from a different machine).
+
 If you use **transaction mode** (port **6543**), add `?pgbouncer=true` to the URL so Prisma doesn’t use prepared statements (not supported in that mode).
 
 ---

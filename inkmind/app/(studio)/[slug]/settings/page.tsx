@@ -4,6 +4,7 @@ import Link from "next/link";
 import prisma from "@/lib/db";
 import { createClient } from "@/utils/supabase/server";
 import StudioSettingsForm from "./StudioSettingsForm";
+import StyleSettings from "./StyleSettings";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -29,28 +30,41 @@ export default async function StudioSettingsPage({ params }: Props) {
     redirect("/login");
   }
 
-  const studio = await prisma.studios.findUnique({
-    where: { slug },
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      instagram_url: true,
-      facebook_url: true,
-      contact_email: true,
-      contact_phone: true,
-      address: true,
-    },
-  });
+  let studio: Awaited<ReturnType<typeof prisma.studios.findUnique>> = null;
+  let profile: Awaited<ReturnType<typeof prisma.profiles.findUnique>> = null;
+  try {
+    studio = await prisma.studios.findUnique({
+      where: { slug },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        logo_url: true,
+        instagram_url: true,
+        facebook_url: true,
+        contact_email: true,
+        contact_phone: true,
+        address: true,
+        ai_name: true,
+        artist_voice_tone: true,
+        ai_personality_prompt: true,
+        studio_specialties: true,
+        style_adherence: true,
+      },
+    });
+    profile = studio
+      ? await prisma.profiles.findUnique({
+          where: { id: authUser.id },
+          select: { role: true, studio_id: true },
+        })
+      : null;
+  } catch {
+    redirect("/");
+  }
 
   if (!studio) {
     notFound();
   }
-
-  const profile = await prisma.profiles.findUnique({
-    where: { id: authUser.id },
-    select: { role: true, studio_id: true },
-  });
 
   const isStudioAdmin =
     profile?.studio_id === studio.id && profile?.role === "STUDIO_ADMIN";
@@ -83,10 +97,29 @@ export default async function StudioSettingsPage({ params }: Props) {
           <p className="mt-1 text-sm text-[var(--grey)]">
             {studio.name} · Contact & social
           </p>
+          <Link
+            href={`/${slug}/settings/portfolio`}
+            className="mt-3 inline-flex items-center gap-2 text-sm text-[var(--gold)] hover:text-[var(--gold)]/90 transition"
+          >
+            Manage style references for AI →
+          </Link>
         </header>
 
-        <StudioSettingsForm
+        <StyleSettings
           slug={slug}
+          studioId={studio.id}
+          studioName={studio.name ?? slug}
+          initialData={{
+            ai_name: studio.ai_name,
+            artist_voice_tone: studio.artist_voice_tone,
+            ai_personality_prompt: studio.ai_personality_prompt,
+            studio_specialties: studio.studio_specialties ?? [],
+            style_adherence: studio.style_adherence ?? null,
+          }}
+        />
+        <div className="mt-10">
+          <StudioSettingsForm
+            slug={slug}
           initial={{
             logo_url: studio.logo_url,
             instagram_url: studio.instagram_url,
@@ -95,7 +128,8 @@ export default async function StudioSettingsPage({ params }: Props) {
             contact_phone: studio.contact_phone,
             address: studio.address,
           }}
-        />
+          />
+        </div>
       </div>
     </div>
   );

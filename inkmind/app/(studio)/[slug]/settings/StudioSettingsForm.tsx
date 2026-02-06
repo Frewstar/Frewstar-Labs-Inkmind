@@ -108,6 +108,7 @@ export default function StudioSettingsForm({ slug, initial }: StudioSettingsForm
             </p>
           </div>
         </div>
+
         <div className="rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] p-5 space-y-4">
           <h2 className="text-sm font-semibold text-[var(--white)] border-b border-white/10 pb-2">
             Contact & social

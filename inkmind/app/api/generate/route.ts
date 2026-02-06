@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
+import Replicate from "replicate";
 import { getAccessToken } from "@/lib/google-auth";
 import { createClient } from "@/utils/supabase/server";
 import prisma from "@/lib/db";
 import { getStyleById } from "@/lib/tattoo-styles";
 import { saveGeneratedImageToLocal } from "@/lib/local-storage";
+import { persistGeneratedTattoo } from "@/app/actions/ross";
 
 const DEFAULT_STUDIO_SLUG = "default";
 
@@ -42,6 +44,10 @@ interface GenerateRequest {
   referenceStrength?: number;
   /** Alias for referenceStrength (e.g. prompt_strength / strength from other providers). */
   strength?: number;
+  /** Model: "basic" = FLUX Schnell (Replicate), "standard" = Gemini free, "high" = Vertex paid. */
+  model?: "basic" | "standard" | "high";
+  /** FLUX guidance_scale 1.5–5.0: overrides studio Style Adherence for this request when using Basic (Schnell). */
+  styleStrength?: number;
 }
 
 const QUOTA_EXCEEDED_MESSAGE =
@@ -63,21 +69,25 @@ export async function POST(req: NextRequest) {
     }
 
     if (authUser?.id) {
-      const profile = await prisma.profiles.findUnique({
-        where: { id: authUser.id },
-        select: { id: true, is_admin: true, daily_generations: true, role: true },
-      });
-      if (profile) {
-        prismaUser = {
-          id: profile.id,
-          isAdmin: profile.is_admin,
-          dailyGenerations: profile.daily_generations,
-          role: profile.role,
-        };
-        isQuotaExempt =
-          profile.is_admin ||
-          profile.role === "PRO" ||
-          profile.role === "SUPER_ADMIN";
+      try {
+        const profile = await prisma.profiles.findUnique({
+          where: { id: authUser.id },
+          select: { id: true, is_admin: true, daily_generations: true, role: true },
+        });
+        if (profile) {
+          prismaUser = {
+            id: profile.id,
+            isAdmin: profile.is_admin,
+            dailyGenerations: profile.daily_generations,
+            role: profile.role,
+          };
+          isQuotaExempt =
+            profile.is_admin ||
+            profile.role === "PRO" ||
+            profile.role === "SUPER_ADMIN";
+        }
+      } catch {
+        // Database unreachable — treat as no profile
       }
     } else {
       isGuest = true;
@@ -104,7 +114,9 @@ export async function POST(req: NextRequest) {
       placement,
       count = 4,
       isPaid = false,
+      model: requestedModel,
       studioSlug: requestedStudioSlug,
+      styleStrength: requestStyleStrength,
       parent_id: parentId,
       referenceImage,
       referenceImageUrl,
@@ -112,6 +124,10 @@ export async function POST(req: NextRequest) {
       referenceStrength: rawStrength,
       strength: strengthAlias,
     } = body;
+
+    // Resolve model: "basic" = Schnell, "high" or isPaid = Vertex, else Gemini free
+    const useSchnell = requestedModel === "basic";
+    const usePaid = requestedModel === "high" || (requestedModel !== "basic" && isPaid);
 
     // Resolve reference URL: explicit URL, or from parent_id (fetch parent design's image_url)
     let referenceUrl = referenceImageUrl ?? reference_image_url;
@@ -157,7 +173,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (isPaid) {
+    if (useSchnell) {
+      if (!process.env.REPLICATE_API_TOKEN) {
+        return NextResponse.json(
+          { error: "REPLICATE_API_TOKEN not configured. Required for Basic (Schnell) model." },
+          { status: 500 }
+        );
+      }
+    } else if (usePaid) {
       if (!GCP_PROJECT_ID) {
         return NextResponse.json(
           { error: "GCP_PROJECT_ID not configured. Required for Paid tier." },
@@ -175,21 +198,43 @@ export async function POST(req: NextRequest) {
 
     const fullPrompt = buildTattooPrompt(prompt, style, placement, !!referenceImageData);
 
-    const modelLabel = isPaid ? `Paid tier (${PAID_MODEL_ID})` : `Free tier (${FREE_MODEL_ID})`;
+    const modelLabel = useSchnell
+      ? "Basic (FLUX Schnell)"
+      : usePaid
+        ? `Paid tier (${PAID_MODEL_ID})`
+        : `Free tier (${FREE_MODEL_ID})`;
     console.log(`[InkMind] Generating ${count} images using ${modelLabel}`);
 
-    let token: string | undefined;
-    if (isPaid) {
-      token = await getAccessToken();
-    }
+    let images: string[] = [];
 
-    const images: string[] = [];
-    for (let i = 0; i < count; i++) {
-      const imageData = await generateSingleImage(fullPrompt, { isPaid, token, referenceImage: referenceImageData });
-      if (imageData) {
-        images.push(imageData);
-      } else {
-        console.warn(`[InkMind] Failed to generate image ${i + 1}/${count}`);
+    if (useSchnell) {
+      const studioSlug = (requestedStudioSlug ?? "").trim() || DEFAULT_STUDIO_SLUG;
+      const { prompt: schnellPrompt, guidanceScale } = await buildBespokeSchnellPrompt(
+        studioSlug,
+        fullPrompt
+      );
+      // Per-request override: client can send styleStrength (1.5–5.0); else use studio's Style Adherence
+      const effectiveGuidance =
+        requestStyleStrength != null
+          ? Math.min(5, Math.max(1.5, Number(requestStyleStrength)))
+          : guidanceScale;
+      images = await generateWithSchnell(schnellPrompt, count, effectiveGuidance);
+    } else {
+      let token: string | undefined;
+      if (usePaid) {
+        token = await getAccessToken();
+      }
+      for (let i = 0; i < count; i++) {
+        const imageData = await generateSingleImage(fullPrompt, {
+          isPaid: usePaid,
+          token,
+          referenceImage: referenceImageData,
+        });
+        if (imageData) {
+          images.push(imageData);
+        } else {
+          console.warn(`[InkMind] Failed to generate image ${i + 1}/${count}`);
+        }
       }
     }
 
@@ -209,23 +254,38 @@ export async function POST(req: NextRequest) {
 
     const useLocalStorage = process.env.USE_LOCAL_STORAGE === "true";
 
+    // When using Schnell, persist Replicate CDN URLs to Supabase immediately so the client gets permanent URLs
+    if (useSchnell && images.length > 0 && authUser?.id && !useLocalStorage) {
+      const targetStudio = await resolveStudioForSave(requestedStudioSlug);
+      const permanent: string[] = [];
+      for (const replicateUrl of images) {
+        const result = await persistGeneratedTattoo(replicateUrl, targetStudio.id);
+        permanent.push(result.success ? result.url : replicateUrl);
+      }
+      images.length = 0;
+      images.push(...permanent);
+    }
+
     let designId: string | null = null;
     let designsToReturn: string[] = images;
 
     if (useLocalStorage) {
-      // Store images in public/uploads/generated for testing without Supabase
-      const urls: string[] = [];
-      for (let i = 0; i < images.length; i++) {
-        try {
-          const url = await saveGeneratedImageToLocal(images[i]);
-          urls.push(url);
-        } catch (err) {
-          console.error("[InkMind] Local save failed for image", i + 1, err);
-          urls.push(images[i]); // fallback to base64 so client still gets an image
+      if (useSchnell) {
+        designsToReturn = images; // Replicate URLs; local save expects base64 so skip
+      } else {
+        const urls: string[] = [];
+        for (let i = 0; i < images.length; i++) {
+          try {
+            const url = await saveGeneratedImageToLocal(images[i]);
+            urls.push(url);
+          } catch (err) {
+            console.error("[InkMind] Local save failed for image", i + 1, err);
+            urls.push(images[i]);
+          }
         }
+        designsToReturn = urls;
+        console.log(`[InkMind] Saved ${urls.length} images to local folder (USE_LOCAL_STORAGE=true)`);
       }
-      designsToReturn = urls;
-      console.log(`[InkMind] Saved ${urls.length} images to local folder (USE_LOCAL_STORAGE=true)`);
     } else if (authUser?.id) {
       try {
         const supabase = await createClient();
@@ -236,9 +296,11 @@ export async function POST(req: NextRequest) {
         const uploadedUrls: string[] = [];
 
         for (let i = 0; i < images.length; i++) {
-          const imageUrl = await uploadGeneratedImage(supabase, profileId, images[i], targetStudio.id);
+          const imageUrl = useSchnell
+            ? images[i]
+            : await uploadGeneratedImage(supabase, profileId, images[i], targetStudio.id);
           if (!imageUrl) {
-            uploadedUrls.push(images[i]); // fallback to base64 if upload failed
+            if (!useSchnell) uploadedUrls.push(images[i]);
             continue;
           }
           uploadedUrls.push(imageUrl);
@@ -349,6 +411,67 @@ function parseReferenceImage(ref: string): { data: string; mimeType: string } {
   return { data: ref, mimeType: "image/png" };
 }
 
+/** Fetch combined Style Instructions (DNA) from studio_portfolio technical_notes for injection into Schnell prompts. */
+async function getStudioStyleInstructions(studioId: string): Promise<string | null> {
+  const entries = await prisma.studio_portfolio.findMany({
+    where: { studio_id: studioId, technical_notes: { not: null } },
+    select: { technical_notes: true },
+    orderBy: { created_at: "desc" },
+    take: 5,
+  });
+  const parts = entries
+    .map((e) => e.technical_notes?.trim())
+    .filter((t): t is string => !!t);
+  if (parts.length === 0) return null;
+  return parts.join(" ");
+}
+
+const DEFAULT_GUIDANCE_SCALE = 3.0;
+
+/**
+ * Build the bespoke Schnell prompt and get studio's style adherence (guidance_scale).
+ * Style DNA first for FLUX prefix weighting; returns prompt and guidanceScale 1.5–5.0.
+ */
+async function buildBespokeSchnellPrompt(
+  studioSlug: string,
+  fullPrompt: string
+): Promise<{ prompt: string; guidanceScale: number }> {
+  const studio = await prisma.studios.findUnique({
+    where: { slug: studioSlug },
+    select: {
+      id: true,
+      ai_personality_prompt: true,
+      studio_specialties: true,
+      style_adherence: true,
+    },
+  });
+
+  const styleDNA =
+    (studio?.ai_personality_prompt?.trim()) ||
+    (studio?.id ? await getStudioStyleInstructions(studio.id) : null) ||
+    "Professional tattoo flash style";
+  const specialtyList = studio?.studio_specialties ?? [];
+  const specialties = specialtyList.length > 0 ? specialtyList.join(", ") : "";
+
+  const technicalSpecs =
+    "Tattoo design on white background, clean linework, high contrast, flash sheet style, 8k resolution.";
+
+  let prompt: string;
+  if (specialties) {
+    prompt = `STYLE GUIDE: ${styleDNA}. SPECIALIZING IN: ${specialties}. USER REQUEST: ${fullPrompt}. TECHNICAL SPECS: ${technicalSpecs}`.trim();
+  } else {
+    prompt = `STYLE GUIDE: ${styleDNA}. USER REQUEST: ${fullPrompt}. TECHNICAL SPECS: ${technicalSpecs}`.trim();
+  }
+
+  const raw = studio?.style_adherence;
+  const guidanceScale =
+    raw != null
+      ? Math.min(5, Math.max(1.5, Number(raw)))
+      : DEFAULT_GUIDANCE_SCALE;
+
+  return { prompt, guidanceScale };
+}
+
 /** Resolve studio for saving: use requested slug if provided and exists, else default. */
 async function resolveStudioForSave(requestedSlug?: string | null): Promise<{ id: string }> {
   const slug = (requestedSlug ?? "").trim() || DEFAULT_STUDIO_SLUG;
@@ -402,6 +525,56 @@ async function uploadGeneratedImage(
 
   const { data: urlData } = supabase.storage.from("generated-designs").getPublicUrl(path);
   return urlData.publicUrl;
+}
+
+const SCHNELL_MODEL = "black-forest-labs/flux-schnell";
+
+/** Optimal params for FLUX Schnell (distilled model): 4 steps, no guidance, fp8, 1MP. */
+const SCHNELL_INPUT = {
+  num_inference_steps: 4,
+  guidance_scale: 0.0,
+  go_fast: true,
+  megapixels: "1" as const,
+  aspect_ratio: "1:1" as const,
+  output_format: "webp" as const,
+  output_quality: 80,
+};
+
+/** Generate images with FLUX Schnell (Replicate). guidanceScale 1.5–5.0 = style adherence (DNA strength). */
+async function generateWithSchnell(
+  prompt: string,
+  count: number,
+  guidanceScale: number = DEFAULT_GUIDANCE_SCALE
+): Promise<string[]> {
+  const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
+  const scale = Math.min(5, Math.max(1.5, guidanceScale));
+  const urls: string[] = [];
+  for (let i = 0; i < count; i++) {
+    try {
+      const output = await replicate.run(SCHNELL_MODEL, {
+        input: {
+          prompt,
+          num_outputs: 1,
+          ...SCHNELL_INPUT,
+          guidance_scale: scale,
+        },
+      });
+      const outList = Array.isArray(output) ? output : [output];
+      for (const item of outList) {
+        if (item == null) continue;
+        const url =
+          typeof item === "string"
+            ? item
+            : typeof (item as { toString?: () => string }).toString === "function"
+              ? (item as { toString: () => string }).toString()
+              : String(item);
+        urls.push(url);
+      }
+    } catch (err) {
+      console.warn(`[InkMind] Schnell image ${i + 1}/${count} failed:`, err);
+    }
+  }
+  return urls;
 }
 
 async function generateSingleImage(

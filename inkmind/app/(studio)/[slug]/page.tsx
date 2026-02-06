@@ -91,7 +91,7 @@ export default async function StudioAdminPage({ params }: Props) {
 
   return (
     <>
-      <StudioCreatorSlot studioSlug={studio.slug} />
+      <StudioCreatorSlot studioSlug={studio.slug} studioId={studio.id} />
       <StudioAdminDashboard
         studio={{ id: studio.id, name: studio.name, slug: studio.slug }}
         designs={designItems}
