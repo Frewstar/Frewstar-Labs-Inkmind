@@ -566,6 +566,35 @@ section[id] {
   transform: scale(1.02);
   border-color: var(--gold-dim);
 }
+/* Always-visible heart on generated design cards (no hover needed; works on touch) */
+.gallery-card-fav-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  background: rgba(10, 10, 10, 0.85);
+  border: 1px solid rgba(232, 180, 90, 0.3);
+  border-radius: 50%;
+  color: #E8B45A;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, transform 0.2s;
+  backdrop-filter: blur(8px);
+}
+.gallery-card-fav-btn:hover {
+  background: rgba(232, 180, 90, 0.15);
+  border-color: #E8B45A;
+  transform: scale(1.08);
+}
+.gallery-card-fav-btn svg {
+  width: 20px;
+  height: 20px;
+}
 .gallery-card svg.tattoo-sketch {
   width: 75%;
   height: 75%;
@@ -1751,6 +1780,111 @@ footer p { font-size: clamp(0.6875rem, 2vw, 0.75rem); color: var(--grey-dim); }
   padding-top: 1.25rem;
 }
 
+/* ─── Reference Image Upload — Luxury (Multi-Merge 4-Pic) ─────────────────── */
+
+.reference-upload-luxury {
+  margin-top: 24px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(232, 180, 90, 0.15);
+  border-radius: 14px;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.reference-upload-luxury:hover {
+  border-color: rgba(232, 180, 90, 0.25);
+  box-shadow: 0 0 0 1px rgba(232, 180, 90, 0.06);
+}
+
+.reference-upload-luxury .reference-label {
+  font-family: var(--font-head);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--white);
+  margin-bottom: 12px;
+  display: block;
+  letter-spacing: 0.02em;
+}
+
+.reference-upload-luxury .reference-label-count {
+  color: var(--gold);
+  font-weight: 500;
+  margin-left: 4px;
+}
+
+.reference-grid-luxury {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  max-width: 200px;
+  margin-top: 12px;
+}
+
+.reference-slot-luxury {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  background: rgba(10, 10, 10, 0.5);
+  border: 1px solid rgba(232, 180, 90, 0.2);
+  border-radius: 12px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.reference-slot-luxury:hover {
+  border-color: rgba(232, 180, 90, 0.35);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.reference-slot-luxury img {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid rgba(232, 180, 90, 0.25);
+}
+
+.reference-slot-remove {
+  background: none;
+  border: none;
+  color: var(--grey);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+  letter-spacing: 0.02em;
+  transition: color 0.2s ease;
+}
+
+.reference-slot-remove:hover {
+  color: var(--gold);
+}
+
+.reference-upload-btn-luxury {
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(232, 180, 90, 0.3);
+  border-radius: 50px;
+  color: var(--gold);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.reference-upload-btn-luxury:hover:not(:disabled) {
+  background: rgba(232, 180, 90, 0.1);
+  border-color: var(--gold);
+  box-shadow: 0 4px 16px rgba(232, 180, 90, 0.15);
+}
+
+.reference-upload-btn-luxury:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Gallery filter chips (All | Arm tattoos | …) */
 .gallery-filter-row {
   display: flex;
@@ -1979,6 +2113,11 @@ footer p { font-size: clamp(0.6875rem, 2vw, 0.75rem); color: var(--grey-dim); }
   color: var(--gold);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   DESIGN GALLERY — LUXURY EDITION
+   High-end gallery aesthetic with masonry layout and sophisticated interactions
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 /* ─── Gallery Wrapper ─────────────────────────────────────────────────────── */
 
 .design-gallery-wrapper {
@@ -2162,7 +2301,6 @@ footer p { font-size: clamp(0.6875rem, 2vw, 0.75rem); color: var(--grey-dim); }
   );
   position: relative;
 }
-
 .gallery-divider::after {
   content: '';
   position: absolute;
@@ -2175,6 +2313,7 @@ footer p { font-size: clamp(0.6875rem, 2vw, 0.75rem); color: var(--grey-dim); }
   border-radius: 50%;
   box-shadow: 0 0 12px rgba(232, 180, 90, 0.5);
 }
+
 
 /* ─── Gallery Grid — Masonry Layout ───────────────────────────────────────── */
 
@@ -2548,4 +2687,45 @@ footer p { font-size: clamp(0.6875rem, 2vw, 0.75rem); color: var(--grey-dim); }
   pointer-events: none;
   user-select: none;
   white-space: nowrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   STUDIO ASSISTANT — LUXURY EDITION
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.studio-assistant-suggestion {
+  animation: slideInFromLeft 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
+}
+
+@keyframes slideInFromLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-12px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+/* Subtle shimmer effect on hover */
+.studio-assistant-suggestion::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(232, 180, 90, 0.1),
+    transparent
+  );
+  transition: left 0.6s ease;
+}
+
+.studio-assistant-suggestion:hover::before {
+  left: 100%;
 }

@@ -1,6 +1,4 @@
 import { createClient } from "@/utils/supabase/server";
-import { getCurrentSuperAdminProfile } from "@/app/admin/actions";
-import SuperStudiosForm from "./SuperStudiosForm";
 import Link from "next/link";
 
 const ESTIMATE_BYTES_PER_DESIGN = 800 * 1024;
@@ -16,16 +14,38 @@ export const metadata = {
 
 export default async function SuperStudiosPage() {
   const supabase = await createClient();
-  const [studiosRes, designsRes] = await Promise.all([
-    supabase.from("studios").select("id, name, slug, logo_url, contact_email, contact_phone, address").order("name", { ascending: true }),
-    supabase.from("designs").select("studio_id"),
+  
+  // Fetch studios and designs
+  const [studiosRes, designsRes, profilesRes] = await Promise.all([
+    supabase
+      .from("studios")
+      .select("id, name, slug, logo_url, contact_email, contact_phone, address")
+      .order("name", { ascending: true }),
+    supabase
+      .from("designs")
+      .select("studio_id"),
+    supabase
+      .from("profiles")
+      .select("id, studio_id, role")
+      .eq("role", "STUDIO_ADMIN"),
   ]);
 
   const studios = studiosRes.data ?? [];
+  const profiles = profilesRes.data ?? [];
+  
+  // Count designs by studio
   const designCountByStudio = new Map<string, number>();
   for (const d of designsRes.data ?? []) {
     if (d.studio_id) {
       designCountByStudio.set(d.studio_id, (designCountByStudio.get(d.studio_id) ?? 0) + 1);
+    }
+  }
+
+  // Map studio admins
+  const studioAdminMap = new Map<string, string>();
+  for (const p of profiles) {
+    if (p.studio_id) {
+      studioAdminMap.set(p.studio_id, p.id);
     }
   }
 
@@ -39,7 +59,6 @@ export default async function SuperStudiosPage() {
       })
     : null;
   const topStudioCount = topStudio ? (designCountByStudio.get(topStudio.id) ?? 0) : 0;
-  const currentUserProfile = await getCurrentSuperAdminProfile();
 
   const rows = studios.map((s) => {
     const designCount = designCountByStudio.get(s.id) ?? 0;
@@ -50,11 +69,13 @@ export default async function SuperStudiosPage() {
       Boolean(s.contact_phone?.trim()) ||
       Boolean(s.address?.trim());
     const profileStatus = hasLogo && hasContact ? "Complete" : "Pending";
+    const adminEmail = studioAdminMap.get(s.id) ? "Assigned" : "—";
+    
     return {
       id: s.id,
       name: s.name,
       slug: s.slug,
-      adminEmail: "—",
+      adminEmail,
       designCount,
       storageEstimate: mb(estimatedBytes),
       profileStatus,
@@ -74,7 +95,7 @@ export default async function SuperStudiosPage() {
           Studio Management
         </h1>
         <p className="mt-1 text-sm text-[var(--grey)]">
-          Create studios and assign a profile as Studio Admin.
+          Create studios and manage platform studios.
         </p>
       </div>
 
@@ -118,8 +139,6 @@ export default async function SuperStudiosPage() {
         </div>
       </section>
 
-      <SuperStudiosForm currentUserProfile={currentUserProfile ?? undefined} />
-
       <div className="rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] overflow-hidden">
         <h2 className="px-4 py-3 text-sm font-semibold text-[var(--white)] border-b border-white/10">
           All Studios
@@ -130,14 +149,11 @@ export default async function SuperStudiosPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px]">
-              <thead>
-                <tr className="border-b border-white/10 text-left">
+            <table className="w-full">
+              <thead className="border-b border-white/10">
+                <tr className="text-left">
                   <th className="py-3 px-4 text-xs font-medium uppercase tracking-wider text-[var(--grey)]">
-                    Name
-                  </th>
-                  <th className="py-3 px-4 text-xs font-medium uppercase tracking-wider text-[var(--grey)]">
-                    Slug
+                    Studio
                   </th>
                   <th className="py-3 px-4 text-xs font-medium uppercase tracking-wider text-[var(--grey)]">
                     Status
@@ -146,25 +162,25 @@ export default async function SuperStudiosPage() {
                     Admin
                   </th>
                   <th className="py-3 px-4 text-xs font-medium uppercase tracking-wider text-[var(--grey)]">
-                    Storage (est.)
+                    Usage
                   </th>
                   <th className="py-3 px-4 text-xs font-medium uppercase tracking-wider text-[var(--grey)]">
                     Actions
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-white/5">
                 {rows.map((r) => (
-                  <tr key={r.id} className="border-b border-white/10">
-                    <td className="py-3 px-4 text-sm text-[var(--white)]/90">
-                      {r.name}
-                    </td>
-                    <td className="py-3 px-4 text-sm text-[var(--grey)] font-mono">
-                      {r.slug}
+                  <tr key={r.id} className="hover:bg-white/[0.02] transition">
+                    <td className="py-3 px-4">
+                      <div>
+                        <p className="text-sm font-medium text-[var(--white)]">{r.name}</p>
+                        <p className="text-xs text-[var(--grey)] font-mono">/{r.slug}</p>
+                      </div>
                     </td>
                     <td className="py-3 px-4">
                       <span
-                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                        className={`inline-block px-2 py-1 rounded-[var(--radius)] text-xs font-medium ${
                           r.profileStatus === "Complete"
                             ? "bg-emerald-500/20 text-emerald-400"
                             : "bg-amber-500/20 text-amber-400"

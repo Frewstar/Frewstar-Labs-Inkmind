@@ -28,7 +28,7 @@ export default async function AdminLayout({
 
   return (
     <div
-      className="flex min-h-[100dvh]"
+      className="flex min-h-[100dvh] w-full"
       style={{
         background: "var(--bg)",
         paddingTop: "var(--safe-top)",
@@ -36,10 +36,10 @@ export default async function AdminLayout({
       }}
     >
       <aside
-        className="w-56 shrink-0 border-r border-white/10 bg-[var(--bg-card)]"
+        className="w-56 min-w-[14rem] shrink-0 overflow-x-hidden border-r border-white/10 bg-[var(--bg-card)]"
         style={{ paddingLeft: "var(--safe-left)" }}
       >
-        <div className="sticky top-0 flex flex-col gap-6 py-6 pl-4 pr-4">
+        <div className="sticky top-0 flex min-w-0 flex-col gap-6 py-6 pl-4 pr-4">
           <Link
             href="/admin"
             className="font-[var(--font-head)] text-lg font-semibold text-[var(--white)] hover:text-[var(--gold)] transition"
@@ -47,25 +47,25 @@ export default async function AdminLayout({
             Admin
           </Link>
           <AdminStorageMeter />
-          <nav className="flex flex-col gap-1">
+          <nav className="flex min-w-0 flex-col gap-1">
             <p className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--grey)]">
               Studio Management
             </p>
             <Link
               href="/admin/pending-designs"
-              className="rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--white)]/90 hover:bg-white/5 hover:text-[var(--gold)] transition"
+              className="block max-w-full truncate rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--white)]/90 hover:bg-white/5 hover:text-[var(--gold)] transition"
             >
               Pending Designs
             </Link>
             <Link
               href="/admin/client-bookings"
-              className="rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--white)]/90 hover:bg-white/5 hover:text-[var(--gold)] transition"
+              className="block max-w-full truncate rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--white)]/90 hover:bg-white/5 hover:text-[var(--gold)] transition"
             >
               Client Bookings
             </Link>
             <Link
               href="/admin/designs"
-              className="rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--white)]/90 hover:bg-white/5 hover:text-[var(--gold)] transition"
+              className="block max-w-full truncate rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--white)]/90 hover:bg-white/5 hover:text-[var(--gold)] transition"
             >
               All Designs
             </Link>
@@ -74,9 +74,33 @@ export default async function AdminLayout({
             </p>
             <Link
               href="/admin/super/studios"
-              className="rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--white)]/90 hover:bg-white/5 hover:text-[var(--gold)] transition"
+              className="block max-w-full truncate rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--white)]/90 hover:bg-white/5 hover:text-[var(--gold)] transition"
             >
               Studio Management
+            </Link>
+            <Link
+              href="/admin/super/users"
+              className="block max-w-full truncate rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--white)]/90 hover:bg-white/5 hover:text-[var(--gold)] transition"
+            >
+              User Management
+            </Link>
+            <Link
+              href="/admin/super/designs"
+              className="block max-w-full truncate rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--white)]/90 hover:bg-white/5 hover:text-[var(--gold)] transition"
+            >
+              All Designs
+            </Link>
+            <Link
+              href="/admin/super/analytics"
+              className="block max-w-full truncate rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--white)]/90 hover:bg-white/5 hover:text-[var(--gold)] transition"
+            >
+              Analytics
+            </Link>
+            <Link
+              href="/admin/super/settings"
+              className="block max-w-full truncate rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--white)]/90 hover:bg-white/5 hover:text-[var(--gold)] transition"
+            >
+              Settings
             </Link>
           </nav>
           <Link
@@ -88,10 +112,10 @@ export default async function AdminLayout({
         </div>
       </aside>
       <main
-        className="min-h-[100dvh] flex-1 overflow-auto px-6 py-8"
+        className="min-h-[100dvh] min-w-0 flex-1 overflow-auto px-6 py-8"
         style={{
           paddingRight: "calc(1.5rem + var(--safe-right))",
-          paddingLeft: "1.5rem",
+          paddingLeft: "calc(1.5rem + var(--safe-left))",
         }}
       >
         {children}

@@ -20,9 +20,9 @@ export function parseSupabaseStorageUrl(
 
 /**
  * Resolve a design image URL using Supabase's getPublicUrl helper.
- * Ensures images work with both Supabase Cloud and Local (http://127.0.0.1:54321).
- * If the URL is a Supabase storage URL, parses bucket+path and reconstructs with
- * the current NEXT_PUBLIC_SUPABASE_URL. Otherwise returns the URL as-is.
+ * - If the URL is a Supabase storage URL from a *different* host (e.g. cloud vs local), return as-is
+ *   so the image loads from where it was actually stored (avoids blank images when DB has cloud URLs but app uses local).
+ * - If same host or path-only, build URL with current supabase so local/cloud both work.
  */
 export function resolveStorageUrl(
   supabase: SupabaseClient,
@@ -30,7 +30,26 @@ export function resolveStorageUrl(
 ): string | null {
   if (!url || typeof url !== "string") return null;
   const parsed = parseSupabaseStorageUrl(url);
-  if (!parsed) return url; // Not a Supabase storage URL (e.g. data:), use as-is
-  const { data } = supabase.storage.from(parsed.bucket).getPublicUrl(parsed.path);
-  return data.publicUrl;
+  if (parsed) {
+    try {
+      const storedHost = new URL(url).host;
+      const currentUrl = (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_SUPABASE_URL) || "";
+      const currentHost = currentUrl ? new URL(currentUrl).host : "";
+      if (storedHost !== currentHost) {
+        return url;
+      }
+    } catch {
+      /* ignore */
+    }
+    const { data } = supabase.storage.from(parsed.bucket).getPublicUrl(parsed.path);
+    return data.publicUrl;
+  }
+  // Path-only stored in DB? e.g. "generated-designs/abc/file.png"
+  const pathMatch = url.match(/^([^/]+)\/(.+)$/);
+  if (pathMatch) {
+    const [, bucket, path] = pathMatch;
+    const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+    return data.publicUrl;
+  }
+  return url;
 }

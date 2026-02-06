@@ -27,10 +27,11 @@ const STATUS_LABELS: Record<string, string> = {
   confirmed: "Confirmed",
 };
 
+/** Fixed locale so server and client render the same string (avoids hydration mismatch). */
 function formatGeneratedDate(iso: string): string {
   try {
     const d = new Date(iso);
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   } catch {
     return "";
   }
@@ -155,14 +156,18 @@ export default function DesignGalleryCard({ design }: { design: DesignGalleryIte
             <div className="flex-1 flex flex-col items-center justify-center min-w-0 relative">
               <span className="text-[10px] uppercase text-[var(--grey)] mb-1">Result</span>
               <div className="tattoo-watermark-wrap max-w-full max-h-full relative aspect-square w-full">
-                <Image
-                  src={design.imageUrl}
-                  alt=""
-                  fill
-                  className="object-contain rounded-[var(--radius)] border border-white/10"
-                  unoptimized
-                  sizes="(max-width: 768px) 50vw, 200px"
-                />
+                {design.imageUrl ? (
+                  <Image
+                    src={design.imageUrl}
+                    alt=""
+                    fill
+                    className="object-contain rounded-[var(--radius)] border border-white/10"
+                    unoptimized
+                    sizes="(max-width: 768px) 50vw, 200px"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center bg-[var(--bg)] text-[var(--grey)] text-xs rounded-[var(--radius)]">No image</div>
+                )}
                 <span className="tattoo-watermark" aria-hidden>InkMind</span>
               </div>
             </div>
@@ -177,14 +182,20 @@ export default function DesignGalleryCard({ design }: { design: DesignGalleryIte
           </div>
         )}
         <div className="tattoo-watermark-wrap absolute inset-0 flex items-center justify-center">
-          <Image
-            src={design.imageUrl}
-            alt={design.prompt.slice(0, 60)}
-            fill
-            className="object-contain"
-            unoptimized
-            sizes="(max-width: 768px) 100vw, 320px"
-          />
+          {design.imageUrl ? (
+            <Image
+              src={design.imageUrl}
+              alt={design.prompt.slice(0, 60)}
+              fill
+              className="object-contain"
+              unoptimized
+              sizes="(max-width: 768px) 100vw, 320px"
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center bg-[var(--bg)] text-[var(--grey)] text-sm" aria-hidden>
+              No image
+            </div>
+          )}
           <span className="tattoo-watermark" aria-hidden>InkMind</span>
         </div>
         <span

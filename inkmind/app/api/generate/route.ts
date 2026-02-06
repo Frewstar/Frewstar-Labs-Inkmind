@@ -39,6 +39,10 @@ interface GenerateRequest {
   referenceImage?: string; // base64 (with or without data URL prefix)
   referenceImageUrl?: string; // Supabase storage or other public URL
   reference_image_url?: string; // alias for referenceImageUrl (e.g. Replicate-style clients)
+  /** Multiple reference URLs for merge (Ross): blend visual elements from up to 4 images. */
+  referenceImageUrls?: string[];
+  /** Alias for referenceImageUrls (snake_case). */
+  reference_image_urls?: string[];
   /** Img2Img strength 0.1–1.0: lower = stay closer to reference, higher = more freedom. Default 0.5. */
   referenceStrength?: number;
   /** Alias for referenceStrength (e.g. prompt_strength / strength from other providers). */
@@ -113,7 +117,7 @@ export async function POST(req: NextRequest) {
       prompt,
       style,
       placement,
-      count = 4,
+      count: requestedCount = 4,
       isPaid = false,
       model: requestedModel,
       studioSlug: requestedStudioSlug,
@@ -122,9 +126,15 @@ export async function POST(req: NextRequest) {
       referenceImage,
       referenceImageUrl,
       reference_image_url,
+      referenceImageUrls: refUrlsCamel,
+      reference_image_urls: refUrlsSnake,
       referenceStrength: rawStrength,
       strength: strengthAlias,
     } = body;
+
+    // Ensure count is 1, 2, or 4 (number of designs to generate)
+    const countRaw = Math.min(4, Math.max(1, Math.floor(Number(requestedCount) || 1)));
+    const count = countRaw === 2 || countRaw === 4 ? countRaw : 1;
 
     // Resolve model: "basic" = Schnell, "high" or isPaid = Vertex, else Gemini free
     const useSchnell = requestedModel === "basic";
@@ -201,6 +211,15 @@ export async function POST(req: NextRequest) {
 
     const fullPrompt = buildTattooPrompt(prompt, style, placement, !!referenceImageData);
 
+    // Array of reference URLs for merge (Ross): reference_image_urls / referenceImageUrls or single referenceUrl
+    const refUrlsInput = refUrlsCamel ?? refUrlsSnake;
+    const referenceUrlsArray: string[] =
+      Array.isArray(refUrlsInput) && refUrlsInput.length > 0
+        ? refUrlsInput.filter((u): u is string => typeof u === "string").slice(0, 4)
+        : referenceUrl
+          ? [referenceUrl]
+          : [];
+
     const modelLabel = useSchnell
       ? "Basic (FLUX Schnell)"
       : usePaid
@@ -214,7 +233,8 @@ export async function POST(req: NextRequest) {
       const studioSlug = (requestedStudioSlug ?? "").trim() || DEFAULT_STUDIO_SLUG;
       const { prompt: schnellPrompt, guidanceScale } = await buildBespokeSchnellPrompt(
         studioSlug,
-        fullPrompt
+        fullPrompt,
+        referenceUrlsArray
       );
       // Per-request override: client can send styleStrength (1.5–5.0); else use studio's Style Adherence
       const effectiveGuidance =
@@ -447,12 +467,36 @@ async function getStudioStyleInstructions(studioId: string): Promise<string | nu
 const DEFAULT_GUIDANCE_SCALE = 3.0;
 
 /**
+ * Build multi-image "interview" context: assign roles (Subject, Style, Texture, Composition).
+ * Pattern: "Take the [Subject] from Ref 1, apply the [Line Style] of Ref 2, use [Shading] from Ref 3, follow [Composition] of Ref 4."
+ */
+function buildMergeContext(referenceUrls: string[]): string {
+  if (referenceUrls.length === 0) return "";
+  if (referenceUrls.length === 1) {
+    return "Follow the exact visual DNA and subject of the reference image.";
+  }
+  const parts = [
+    "Primary Subject: Extract the core figure/concept from the first image.",
+    "Artistic Style: Adopt the line-weight and aesthetic from the second image.",
+  ];
+  if (referenceUrls[2]) {
+    parts.push("Texture/Detail: Incorporate the shading patterns from the third image.");
+  }
+  if (referenceUrls[3]) {
+    parts.push("Composition: Use the spatial arrangement and flow from the fourth image.");
+  }
+  return `Synthesize elements from ${referenceUrls.length} references:\n${parts.map((p) => `- ${p}`).join("\n")}`;
+}
+
+/**
  * Build the bespoke Schnell prompt and get studio's style adherence (guidance_scale).
- * Style DNA first for FLUX prefix weighting; returns prompt and guidanceScale 1.5–5.0.
+ * When referenceUrls is provided, uses Ross "orchestration" with [SCENE], [SUBJECT], [INSTRUCTIONS], [STYLE].
+ * Otherwise uses style DNA + user request + technical specs.
  */
 async function buildBespokeSchnellPrompt(
   studioSlug: string,
-  fullPrompt: string
+  fullPrompt: string,
+  referenceUrls: string[] = []
 ): Promise<{ prompt: string; guidanceScale: number }> {
   const supabase = await createClient();
   const { data: studio } = await supabase
@@ -464,25 +508,34 @@ async function buildBespokeSchnellPrompt(
   const styleDNA =
     (studio?.ai_personality_prompt?.trim()) ||
     (studio?.id ? await getStudioStyleInstructions(studio.id) : null) ||
-    "Professional tattoo flash style";
-  const specialtyList = (studio?.studio_specialties ?? []) as string[];
-  const specialties = specialtyList.length > 0 ? specialtyList.join(", ") : "";
-
-  const technicalSpecs =
-    "Tattoo design on white background, clean linework, high contrast, flash sheet style, 8k resolution.";
-
-  let prompt: string;
-  if (specialties) {
-    prompt = `STYLE GUIDE: ${styleDNA}. SPECIALIZING IN: ${specialties}. USER REQUEST: ${fullPrompt}. TECHNICAL SPECS: ${technicalSpecs}`.trim();
-  } else {
-    prompt = `STYLE GUIDE: ${styleDNA}. USER REQUEST: ${fullPrompt}. TECHNICAL SPECS: ${technicalSpecs}`.trim();
-  }
-
+    "Fine-line black and grey";
   const raw = studio?.style_adherence;
   const guidanceScale =
     raw != null
       ? Math.min(5, Math.max(1.5, Number(raw)))
       : DEFAULT_GUIDANCE_SCALE;
+
+  // Ross orchestration: luxury merge prompt when references are provided
+  if (referenceUrls.length > 0) {
+    const contextStr = buildMergeContext(referenceUrls);
+    const luxuryPrompt = `[SCENE]: A high-end, custom tattoo design on a clean white background.
+[SUBJECT]: ${fullPrompt}.
+[INSTRUCTIONS]: ${contextStr}
+[STYLE]: ${styleDNA}.
+Ensure no skin is visible; render as a high-contrast stencil/flash sheet.
+[AVOID]: Skin, blurry edges, photorealistic backgrounds.`.trim();
+    return { prompt: luxuryPrompt, guidanceScale };
+  }
+
+  // No references: classic style guide + user request + technical specs
+  const specialtyList = (studio?.studio_specialties ?? []) as string[];
+  const specialties = specialtyList.length > 0 ? specialtyList.join(", ") : "";
+  const technicalSpecs =
+    "Tattoo design on white background, clean linework, high contrast, flash sheet style, 8k resolution.";
+  const prompt =
+    specialties
+      ? `STYLE GUIDE: ${styleDNA}. SPECIALIZING IN: ${specialties}. USER REQUEST: ${fullPrompt}. TECHNICAL SPECS: ${technicalSpecs}`.trim()
+      : `STYLE GUIDE: ${styleDNA}. USER REQUEST: ${fullPrompt}. TECHNICAL SPECS: ${technicalSpecs}`.trim();
 
   return { prompt, guidanceScale };
 }
@@ -575,7 +628,33 @@ async function generateWithSchnell(
   const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
   const scale = Math.min(5, Math.max(1.5, guidanceScale));
   const urls: string[] = [];
-  for (let i = 0; i < count; i++) {
+  // Request num_outputs in one call when model supports it; otherwise fall back to multiple calls
+  const numOutputs = Math.min(4, Math.max(1, count));
+  try {
+    const output = await replicate.run(SCHNELL_MODEL, {
+      input: {
+        prompt,
+        num_outputs: numOutputs,
+        ...SCHNELL_INPUT,
+        guidance_scale: scale,
+      },
+    });
+    const outList = Array.isArray(output) ? output : [output];
+    for (const item of outList) {
+      if (item == null) continue;
+      const url =
+        typeof item === "string"
+          ? item
+          : typeof (item as { toString?: () => string }).toString === "function"
+            ? (item as { toString: () => string }).toString()
+            : String(item);
+      if (url && url !== "[object Object]") urls.push(url);
+    }
+  } catch (err) {
+    console.warn(`[InkMind] Schnell batch failed (count=${numOutputs}), trying one-by-one:`, err);
+  }
+  // If we got fewer than requested (e.g. model only returns 1 per call), request the rest one-by-one
+  while (urls.length < count) {
     try {
       const output = await replicate.run(SCHNELL_MODEL, {
         input: {
@@ -594,10 +673,11 @@ async function generateWithSchnell(
             : typeof (item as { toString?: () => string }).toString === "function"
               ? (item as { toString: () => string }).toString()
               : String(item);
-        urls.push(url);
+        if (url && url !== "[object Object]") urls.push(url);
       }
-    } catch (err) {
-      console.warn(`[InkMind] Schnell image ${i + 1}/${count} failed:`, err);
+    } catch (errOne) {
+      console.warn(`[InkMind] Schnell image ${urls.length + 1}/${count} failed:`, errOne);
+      break;
     }
   }
   return urls;

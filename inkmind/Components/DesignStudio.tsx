@@ -215,10 +215,11 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
   const [lastGenerationPrompt, setLastGenerationPrompt] = useState("");
   const [lastGenerationStyle, setLastGenerationStyle] = useState(selectedStyle);
   const [savedInSession, setSavedInSession] = useState<Set<number>>(new Set()); // which current gallery indices were saved this session
-  const [refImage, setRefImage] = useState<string | null>(null);
+  /** Up to 4 reference images (multi-merge); first is used for generation when API supports single ref. */
+  const [referenceUrls, setReferenceUrls] = useState<string[]>([]);
   /** When ref was loaded from "Branch off" (?parent_id=), send this so the new design gets parent_id saved. */
   const [branchFromDesignId, setBranchFromDesignId] = useState<string | null>(null);
-  /** Img2Img strength 0.1–1.0: lower = stay closer to reference, higher = more freedom. Only used when refImage is set. */
+  /** Img2Img strength 0.1–1.0: lower = stay closer to reference, higher = more freedom. Only used when referenceUrls.length > 0. */
   const [referenceStrength, setReferenceStrength] = useState(0.5);
   /** FLUX Style Adherence 1.5–5.0: only used when model is Basic (Schnell). Sent as styleStrength to API. */
   const [styleStrength, setStyleStrength] = useState(3.0);
@@ -240,7 +241,8 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
   /** Index of the design that was reviewed (so Apply Fixes uses that image as ref). */
   const [rossReviewedImageIndex, setRossReviewedImageIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const refFileRef = useRef<File | null>(null);
+  /** Files for upload (parallel to referenceUrls; first used when posting to /api/generate). */
+  const refFilesRef = useRef<File[]>([]);
   const promptSectionRef = useRef<HTMLDivElement>(null);
   const tweakLoadedRef = useRef<string | null>(null);
   const parentIdLoadedRef = useRef<string | null>(null);
@@ -356,7 +358,10 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
         if (!design?.prompt) return;
         setIsManualMode(true);
         setManualPrompt(design.prompt);
-        if (design.imageUrl) setRefImage(design.imageUrl);
+        if (design.imageUrl) {
+          setReferenceUrls([design.imageUrl]);
+          refFilesRef.current = [];
+        }
         document.getElementById("studio")?.scrollIntoView({ behavior: "smooth" });
         const next = new URLSearchParams(searchParams.toString());
         next.delete("tweak");
@@ -378,7 +383,10 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
       .then((res) => (res.ok ? res.json() : null))
       .then((data: { imageUrl?: string | null; prompt?: string | null } | null) => {
         if (!data) return;
-        if (data.imageUrl) setRefImage(data.imageUrl);
+        if (data.imageUrl) {
+          setReferenceUrls([data.imageUrl]);
+          refFilesRef.current = [];
+        }
         setIsManualMode(true);
         setManualPrompt(data.prompt ? `Modify: ${data.prompt}` : "e.g. Add more shading, make lines thicker");
         setTimeout(() => promptSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
@@ -402,7 +410,10 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
       .then((res) => (res.ok ? res.json() : null))
       .then((data: { imageUrl?: string | null; prompt?: string | null } | null) => {
         if (!data) return;
-        if (data.imageUrl) setRefImage(data.imageUrl);
+        if (data.imageUrl) {
+          setReferenceUrls([data.imageUrl]);
+          refFilesRef.current = [];
+        }
         setIsManualMode(true);
         setManualPrompt(data.prompt ? `Modify: ${data.prompt}` : "e.g. Add more shading, make lines thicker");
         setTimeout(() => {
@@ -496,17 +507,34 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
     );
   }, []);
 
+  const MAX_REF_IMAGES = 4;
+
+  const readFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => (typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("not string")));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+
   const handleRefImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    refFileRef.current = file;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === "string") setRefImage(result);
-    };
-    reader.readAsDataURL(file);
+    const files = e.target.files;
+    if (!files?.length) return;
+    const imageFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    const toAdd = Math.min(MAX_REF_IMAGES - referenceUrls.length, imageFiles.length);
+    if (toAdd <= 0) return;
+    const adding = imageFiles.slice(0, toAdd);
+    Promise.all(adding.map(readFileAsDataUrl)).then((urls) => {
+      setReferenceUrls((prev) => prev.concat(urls).slice(0, MAX_REF_IMAGES));
+      refFilesRef.current = [...refFilesRef.current, ...adding].slice(0, MAX_REF_IMAGES);
+    });
     e.target.value = "";
+  };
+
+  const removeRefImage = (index: number) => {
+    setReferenceUrls((prev) => prev.filter((_, i) => i !== index));
+    refFilesRef.current = refFilesRef.current.filter((_, i) => i !== index);
+    if (index === 0) setBranchFromDesignId(null);
   };
 
   // Wizard completion handler. referenceImageOverride: when set (e.g. from Apply Fixes), use this as the ref image.
@@ -521,10 +549,10 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
 
     try {
       let referenceImageUrl: string | undefined;
-      if (refFileRef.current) {
-        const file = refFileRef.current;
+      const firstFile = refFilesRef.current[0];
+      if (firstFile) {
         const formData = new FormData();
-        formData.append("file", file);
+        formData.append("file", firstFile);
         const uploadRes = await fetch("/api/upload/reference", {
           method: "POST",
           body: formData,
@@ -538,13 +566,20 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
         referenceImageUrl = uploadJson.url;
       }
 
-      // Prefer override (e.g. from Ross Apply Fixes), then uploaded ref, then refImage state
-      const refSource = referenceImageOverride ?? refImage;
+      // Prefer override (e.g. from Ross Apply Fixes), then uploaded ref, then first ref image from state
+      const refSource = referenceImageOverride ?? referenceUrls[0];
       const refUrl =
         referenceImageUrl ?? (refSource?.startsWith("http") ? refSource : undefined);
       const refData =
         !refUrl && refSource && !refSource.startsWith("http") ? refSource : undefined;
       const hasReference = !!refUrl || !!refData;
+
+      // Send array of reference URLs for merge (Ross): backend uses length for "merge N references" prompt
+      const firstRefUrl = refUrl ?? (refSource?.startsWith("http") ? refSource : null);
+      const referenceImageUrlsPayload =
+        hasReference && referenceUrls.length > 0 && firstRefUrl
+          ? Array.from({ length: referenceUrls.length }, () => firstRefUrl)
+          : undefined;
 
       const res = await fetch("/api/generate", {
         method: "POST",
@@ -557,17 +592,18 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
           model,
           isPaid: model === "high",
           ...(studioSlug && { studioSlug }),
-          // Explicit user override for FLUX; backend uses studio default only when this is omitted
           ...(model === "basic" && { styleStrength }),
           ...(refUrl && { referenceImageUrl: refUrl }),
           ...(refData && { referenceImage: refData }),
+          ...(referenceImageUrlsPayload && { referenceImageUrls: referenceImageUrlsPayload }),
           ...(hasReference && { referenceStrength }),
           ...(branchFromDesignId && { parent_id: branchFromDesignId }),
         }),
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Generation failed");
+        // Prefer the human-readable message (e.g. quota: "You have used your 5 free daily designs...")
+        setError(data.message || data.error || "Generation failed");
         setErrorConsoleUrl(data.code === "GCP_IAM_REQUIRED" ? data.consoleUrl ?? null : null);
         return;
       }
@@ -678,54 +714,50 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
           </div>
         )}
 
-        {/* Reference Image Upload */}
-        <div style={{ marginTop: 24 }}>
-          <label style={{ marginBottom: 8, display: "block", fontSize: 14, fontWeight: 500 }}>
-            Reference Image
+        {/* Reference Image Upload — Luxury multi-merge (up to 4 images in 2×2 grid) */}
+        <div className="reference-upload-luxury">
+          <label className="reference-label">
+            Reference Image{referenceUrls.length > 0 ? <span className="reference-label-count">({referenceUrls.length}/4)</span> : ""}
           </label>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <input
               ref={fileInputRef}
               type="file"
               accept="image/*"
+              multiple
               onChange={handleRefImageChange}
               style={{ display: "none" }}
+              aria-label="Upload reference images"
             />
             <button
               type="button"
-              className="btn-outline"
+              className="reference-upload-btn-luxury"
               onClick={() => fileInputRef.current?.click()}
-              style={{ padding: "10px 18px", fontSize: 13 }}
+              disabled={referenceUrls.length >= MAX_REF_IMAGES}
             >
-              Upload Reference (e.g., Pokémon, Logo)
+              {referenceUrls.length >= MAX_REF_IMAGES ? "Max 4 images" : "Upload Reference (e.g., Pokémon, Logo)"}
             </button>
-            {refImage && (
-              <div className="reference-with-strength">
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                    <img
-                      src={refImage}
-                      alt="Original"
-                      style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 8, border: "1px solid rgba(232,180,90,0.3)" }}
-                    />
-                    <span style={{ fontSize: 11, color: "var(--grey)" }}>Original</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => { refFileRef.current = null; setRefImage(null); setBranchFromDesignId(null); }}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "var(--grey)",
-                      fontSize: 12,
-                      cursor: "pointer",
-                      textDecoration: "underline",
-                    }}
-                  >
-                    Remove
-                  </button>
+            {referenceUrls.length > 0 && (
+              <>
+                <div className="reference-grid-luxury">
+                  {referenceUrls.map((url, index) => (
+                    <div key={index} className="reference-slot-luxury">
+                      <img
+                        src={url}
+                        alt={`Reference ${index + 1}`}
+                      />
+                      <button
+                        type="button"
+                        className="reference-slot-remove"
+                        onClick={() => removeRefImage(index)}
+                        aria-label={`Remove reference ${index + 1}`}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
                 </div>
-                <div className="strength-slider-row" style={{ marginTop: 10, maxWidth: 320 }}>
+                <div className="strength-slider-row" style={{ marginTop: 4, maxWidth: 320 }}>
                   <label htmlFor="ref-strength" style={{ fontSize: 12, color: "var(--grey)", display: "block", marginBottom: 4 }}>
                     Strength: lower = stay close to original, higher = more change (0.1–1.0)
                   </label>
@@ -746,7 +778,7 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
                     </span>
                   </div>
                 </div>
-              </div>
+              </>
             )}
           </div>
         </div>
@@ -822,14 +854,14 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
           ) : isManualMode ? (
             <div ref={promptSectionRef} className="manual-prompt-container">
               <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
-                {refImage && (
+                {referenceUrls[0] && (
                   <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
                     <img
-                      src={refImage}
-                      alt="Original"
+                      src={referenceUrls[0]}
+                      alt="Reference"
                       style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: "1px solid rgba(232,180,90,0.3)" }}
                     />
-                    <span style={{ fontSize: 11, color: "var(--grey)" }}>Original</span>
+                    <span style={{ fontSize: 11, color: "var(--grey)" }}>{referenceUrls.length > 1 ? `${referenceUrls.length} refs` : "Reference"}</span>
                   </div>
                 )}
                 <div style={{ flex: 1, minWidth: 200 }}>
@@ -844,30 +876,42 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
                     placeholder="e.g. A fine-line blackwork raven with geometric patterns, bold and minimal, for forearm placement"
                     disabled={loading}
                   />
-                  {/* Studio Assistant: style suggestion chips (not a chat box) */}
-                  <div className="mt-4 rounded-[var(--radius-lg)] bg-[var(--bg-card)] border border-white/10 p-4 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-24 h-24 bg-[var(--gold)] opacity-5 rounded-full blur-3xl pointer-events-none" />
+                  {/* Studio Assistant: style suggestion chips */}
+                  <div className="mt-4 rounded-[var(--radius-lg)] bg-gradient-to-br from-[var(--bg-card)] to-[#0a0a0a] border border-[var(--gold)]/20 p-5 relative overflow-hidden">
+                    {/* Ambient glow effect */}
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-[var(--gold)] opacity-[0.03] rounded-full blur-3xl pointer-events-none" />
+                    <div className="absolute bottom-0 left-0 w-24 h-24 bg-[var(--gold)] opacity-[0.02] rounded-full blur-2xl pointer-events-none" />
+
                     <div className="relative">
-                      <div className="flex items-center gap-2 mb-3">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                      {/* Header */}
+                      <div className="flex items-center gap-2.5 mb-4">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
                           <path d="M9 2v6l-3 1" />
                           <path d="M15 2v6l3 1" />
                           <path d="M12 8v13" />
                           <path d="M9 21h6" />
                         </svg>
-                        <span className="text-sm font-semibold text-[var(--white)] font-[var(--font-head)]">
+                        <span className="text-sm font-semibold text-[var(--gold)] font-[var(--font-head)] tracking-wide">
                           Studio Assistant
                         </span>
                         {rossLoading && (
-                          <span className="text-xs text-[var(--grey)] ml-auto animate-pulse">Thinking…</span>
+                          <span className="text-xs text-[var(--grey)] ml-auto animate-pulse flex items-center gap-1.5">
+                            <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                            </svg>
+                            Analyzing…
+                          </span>
                         )}
                         {rossError && (
-                          <span className="text-xs text-[var(--red)] ml-auto">{rossError}</span>
+                          <span className="text-xs text-red-400/90 ml-auto">{rossError}</span>
                         )}
                       </div>
+
+                      {/* Suggestion chips */}
                       {rossSuggestions.length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-xs text-[var(--grey)] uppercase tracking-wider font-medium">
+                        <div className="space-y-2.5">
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--grey)] opacity-80">
                             Style Enhancers
                           </p>
                           <div className="flex flex-wrap gap-2">
@@ -875,31 +919,54 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
                               <button
                                 key={i}
                                 type="button"
-                                className="studio-assistant-suggestion group px-3 py-2 rounded-[var(--radius)] text-sm border border-white/10 bg-[var(--bg)] text-[var(--white)] hover:bg-[var(--gold-dim)] hover:border-[var(--gold)]/30 hover:text-[var(--gold)] transition-all duration-200"
-                                style={{ animationDelay: `${i * 40}ms` }}
+                                className="studio-assistant-suggestion group relative px-4 py-2.5 rounded-lg text-[13px] font-medium border border-[var(--gold)]/15 bg-black/40 text-[var(--white)]/90 hover:bg-[var(--gold)]/10 hover:border-[var(--gold)]/40 hover:text-[var(--gold)] hover:shadow-[0_0_20px_rgba(232,180,90,0.15)] transition-all duration-300 backdrop-blur-sm"
+                                style={{ animationDelay: `${i * 50}ms` }}
                                 onClick={() => {
                                   const sep = manualPrompt.trim().endsWith(",") || !manualPrompt.trim() ? "" : ", ";
-                                  setManualPrompt((p) => p.trim() + sep + s);
+                                  setManualPrompt((prev) => prev.trim() + sep + s);
                                 }}
                               >
-                                <span className="inline-flex items-center gap-1.5">
-                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 opacity-60 group-hover:opacity-100">
-                                    <polyline points="9 18 15 12 9 6" />
-                                  </svg>
-                                  {s}
-                                </span>
+                                <span className="relative z-10">{s}</span>
+                                <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-[var(--gold)]/0 via-[var(--gold)]/5 to-[var(--gold)]/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                               </button>
                             ))}
                           </div>
                         </div>
                       )}
-                      {!rossLoading && rossSuggestions.length === 0 && !rossError && (
-                        <p className="text-xs text-[var(--grey)] italic">
-                          Start typing your tattoo idea to get professional suggestions…
-                        </p>
-                      )}
                     </div>
                   </div>
+
+                  {/* Ross Longevity Alert: placement risk warning */}
+                  {rossLongevityAlert && (
+                    <div className="mt-3 rounded-[var(--radius-lg)] border border-amber-500/30 bg-gradient-to-br from-amber-500/5 to-amber-600/10 p-4 backdrop-blur-sm relative overflow-hidden">
+                      {/* Subtle warning glow */}
+                      <div className="absolute -top-10 -right-10 w-24 h-24 bg-amber-500 opacity-[0.08] rounded-full blur-2xl pointer-events-none" />
+
+                      <div className="relative flex gap-3">
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="w-5 h-5 text-amber-400 shrink-0 mt-0.5"
+                        >
+                          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                          <line x1="12" y1="9" x2="12" y2="13" />
+                          <line x1="12" y1="17" x2="12.01" y2="17" />
+                        </svg>
+                        <div>
+                          <p className="text-xs font-semibold text-amber-300 uppercase tracking-wider mb-1">
+                            Longevity Consideration
+                          </p>
+                          <p className="text-sm text-amber-100/90 leading-relaxed">
+                            {rossLongevityAlert}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
               <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
@@ -922,26 +989,6 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
                     <option key={p} value={p}>{p}</option>
                   ))}
                 </select>
-                {rossLongevityAlert && (
-                  <div className="flex-1 min-w-[200px] rounded-[var(--radius-lg)] bg-[var(--gold-dim)] border border-[var(--gold)]/30 p-4 relative overflow-hidden">
-                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-[var(--gold)]" />
-                    <div className="flex items-start gap-3 pl-2">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 shrink-0 mt-0.5">
-                        <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5" />
-                        <path d="M9 18h6" />
-                        <path d="M10 22h4" />
-                      </svg>
-                      <div className="flex-1">
-                        <p className="text-xs font-semibold text-[var(--gold)] uppercase tracking-wider mb-1">
-                          Artist Insight
-                        </p>
-                        <p className="text-sm text-[var(--white)] leading-relaxed">
-                          {rossLongevityAlert}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
                 <button
                   type="button"
                   onClick={() => handleWizardComplete(manualPrompt.trim(), manualPlacement)}
@@ -1055,6 +1102,19 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
                   tabIndex={0}
                   onKeyDown={(e) => e.key === "Enter" && setLightboxImage(dataUrl)}
                 >
+                  {/* Always-visible heart so users can save without hovering (works on touch) */}
+                  <button
+                    type="button"
+                    className="gallery-card-fav-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSaveToLibrary(i);
+                    }}
+                    title={savedInSession.has(i) ? "Saved to library" : "Save to library"}
+                    aria-label={savedInSession.has(i) ? "Saved to library" : "Save to library"}
+                  >
+                    <HeartIcon filled={savedInSession.has(i)} />
+                  </button>
                   <TattooDesignImage
                     src={dataUrl}
                     alt={`Generated tattoo design ${i + 1}`}
@@ -1089,7 +1149,8 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
                         className="overlay-btn overlay-btn-edit"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setRefImage(dataUrl);
+                          setReferenceUrls([dataUrl]);
+                          refFilesRef.current = [];
                           setIsManualMode(true);
                           setManualPrompt(lastGenerationPrompt ? `Modify: ${lastGenerationPrompt}` : "e.g. Add more shading, make lines thicker");
                           setTimeout(() => {
@@ -1157,7 +1218,8 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
                   if (rossReviewedImageIndex == null) return;
                   const refImageUrl = designs[rossReviewedImageIndex];
                   const refinementPrompt = `Refine with corrections: ${rossReviewFixes.shadingFix}. ${rossReviewFixes.lineFix}. ${rossReviewFixes.colorFix}.`;
-                  setRefImage(refImageUrl);
+                  setReferenceUrls([refImageUrl]);
+                  refFilesRef.current = [];
                   setIsManualMode(true);
                   setManualPrompt(refinementPrompt);
                   setRossReviewFixes(null);
@@ -1271,7 +1333,8 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
                         className="action-btn"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setRefImage(saved.image);
+                          setReferenceUrls([saved.image]);
+                          refFilesRef.current = [];
                           setIsManualMode(true);
                           setManualPrompt(`Modify: ${saved.prompt.slice(0, 60)}${saved.prompt.length > 60 ? "…" : ""}`);
                           setTimeout(() => {

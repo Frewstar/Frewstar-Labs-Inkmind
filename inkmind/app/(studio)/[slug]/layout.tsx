@@ -1,6 +1,7 @@
 import { createClient } from "@/utils/supabase/server";
 import Link from "next/link";
 import GenerationTracker from "@/components/dashboard/GenerationTracker";
+import LogoutButton from "@/components/LogoutButton";
 
 export default async function StudioSlugLayout({
   children,
@@ -40,6 +41,11 @@ export default async function StudioSlugLayout({
           >
             Back to app
           </Link>
+          {user && (
+            <LogoutButton className="mt-2 text-sm text-[var(--grey)] hover:text-[var(--gold)] transition">
+              Log out
+            </LogoutButton>
+          )}
         </div>
       </aside>
       <main
