@@ -1,7 +1,5 @@
 import { createClient } from "@/utils/supabase/server";
-import prisma from "@/lib/db";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 export const metadata = {
   title: "Debug | InkMind",
@@ -26,32 +24,29 @@ export default async function DebugPage() {
     );
   }
 
-  let profile: Awaited<ReturnType<typeof prisma.profiles.findUnique>> = null;
+  let profile: { id: string; is_admin: boolean; role: string | null; studio_id: string | null; studios?: { slug: string; name: string } | null } | null = null;
   let designCount = 0;
   let dbError: string | null = null;
 
   try {
-    profile = await prisma.profiles.findUnique({
-      where: { id: authUser.id },
-      select: {
-        id: true,
-        is_admin: true,
-        role: true,
-        studio_id: true,
-        studios: { select: { slug: true, name: true } },
-      },
-    });
+    const { data: profileRow } = await supabase
+      .from("profiles")
+      .select("id, is_admin, role, studio_id, studios ( slug, name )")
+      .eq("id", authUser.id)
+      .single();
+    profile = profileRow as typeof profile;
 
     const isSuperAdmin = profile?.is_admin === true;
-    designCount = isSuperAdmin
-      ? await prisma.designs.count()
-      : await prisma.designs.count({ where: { profile_id: authUser.id } });
+    if (isSuperAdmin) {
+      const { count } = await supabase.from("designs").select("id", { count: "exact", head: true });
+      designCount = count ?? 0;
+    } else {
+      const { count } = await supabase.from("designs").select("id", { count: "exact", head: true }).eq("profile_id", authUser.id);
+      designCount = count ?? 0;
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Database error";
     dbError = message;
-    if (err instanceof Error && err.constructor.name === "PrismaClientInitializationError") {
-      dbError = "Database connection failed. Check DATABASE_URL in .env.local (valid Postgres credentials).";
-    }
   }
 
   if (dbError) {
@@ -125,7 +120,7 @@ export default async function DebugPage() {
           Test query
         </h2>
         <p className="text-sm text-[var(--white)]/90">
-          <strong>prisma.designs.count()</strong> — {isSuperAdmin ? "global total" : "my designs only"}:{" "}
+          <strong>designs.count()</strong> — {isSuperAdmin ? "global total" : "my designs only"}:{" "}
           <span className="font-mono text-[var(--gold)]">{designCount.toLocaleString()}</span>
         </p>
       </section>

@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import prisma from "@/lib/db";
+import { resolveStorageUrl } from "@/lib/supabase-storage";
 import { getDesignHistoryChain } from "@/lib/design-history";
+import { createClient } from "@/utils/supabase/server";
 import ShareView from "./ShareView";
 
 type PageProps = {
@@ -15,17 +16,20 @@ function firstThreeWords(prompt: string): string {
 
 export async function generateMetadata({ params }: PageProps) {
   const { id } = await params;
-  const design = await prisma.designs.findUnique({
-    where: { id },
-    select: { prompt: true, image_url: true },
-  });
+  const supabase = await createClient();
+  const { data: design } = await supabase
+    .from("designs")
+    .select("prompt, image_url")
+    .eq("id", id)
+    .single();
 
   if (!design) {
     return { title: "Shared design | InkMind" };
   }
 
+  const imageUrl = resolveStorageUrl(supabase, design.image_url ?? null);
+
   const title = `InkMind: ${firstThreeWords(design.prompt ?? "")} Tattoo Design`;
-  const imageUrl = design.image_url ?? null;
 
   return {
     title,
@@ -44,47 +48,47 @@ export async function generateMetadata({ params }: PageProps) {
 
 export default async function ShareDesignPage({ params }: PageProps) {
   const { id } = await params;
+  const supabase = await createClient();
 
-  const design = await prisma.designs.findUnique({
-    where: { id },
-    include: {
-      profiles: {
-        include: {
-          users: { select: { email: true } },
-        },
-      },
-    },
-  });
+  const { data: design, error: designError } = await supabase
+    .from("designs")
+    .select("id, image_url, reference_image_url, final_image_url, prompt, created_at, profile_id")
+    .eq("id", id)
+    .single();
 
-  if (!design) {
+  if (designError || !design) {
     notFound();
   }
 
-  const imageUrl = design.image_url ?? null;
-  const referenceImageUrl = design.reference_image_url ?? null;
-  const finalImageUrl = design.final_image_url ?? null;
+  const imageUrl = resolveStorageUrl(supabase, design.image_url ?? null);
+  const referenceImageUrl = resolveStorageUrl(supabase, design.reference_image_url ?? null);
+  const finalImageUrl = resolveStorageUrl(supabase, design.final_image_url ?? null);
   const prompt = design.prompt ?? "";
-  const creatorEmail = design.profiles?.users?.email ?? null;
+  const creatorEmail: string | null = null;
 
   const historyData = await getDesignHistoryChain(id);
   const historyChain = historyData
     ? [
         ...historyData.ancestors.map((a) => ({
           id: a.id,
-          image_url: a.image_url,
+          image_url: resolveStorageUrl(supabase, a.image_url ?? null),
           prompt: a.prompt,
           created_at: a.created_at,
           isCurrent: false,
         })),
         {
           id: historyData.design.id,
-          image_url: historyData.design.image_url,
+          image_url: resolveStorageUrl(supabase, historyData.design.image_url ?? null),
           prompt: historyData.design.prompt,
           created_at: design.created_at,
           isCurrent: true,
         },
       ]
     : [];
+
+  const parentImageUrl = historyData?.ancestors?.length
+    ? resolveStorageUrl(supabase, historyData.ancestors[historyData.ancestors.length - 1].image_url ?? null)
+    : null;
 
   return (
     <main
@@ -108,7 +112,7 @@ export default async function ShareDesignPage({ params }: PageProps) {
           imageUrl={imageUrl}
           referenceImageUrl={referenceImageUrl}
           finalImageUrl={finalImageUrl}
-          parentImageUrl={historyData?.ancestors?.length ? historyData.ancestors[historyData.ancestors.length - 1].image_url ?? null : null}
+          parentImageUrl={parentImageUrl}
           prompt={prompt}
           creatorEmail={creatorEmail}
           historyChain={historyChain}

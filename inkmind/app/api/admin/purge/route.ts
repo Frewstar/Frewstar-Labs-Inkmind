@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import prisma from "@/lib/db";
 import { purgeOldDesigns } from "@/app/admin/actions";
 
 /**
@@ -11,15 +10,18 @@ export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user: authUser } } = await supabase.auth.getUser();
 
-  if (!authUser?.email) {
+  if (!authUser?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const admin = await prisma.user.findFirst({
-    where: { email: authUser.email, isAdmin: true },
-  });
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin, role")
+    .eq("id", authUser.id)
+    .single();
 
-  if (!admin) {
+  const isAdmin = profile?.is_admin || profile?.role === "SUPER_ADMIN";
+  if (!isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

@@ -1,5 +1,4 @@
 import { createClient } from "@/utils/supabase/server";
-import prisma from "@/lib/db";
 import Link from "next/link";
 import GenerationTracker from "@/components/dashboard/GenerationTracker";
 
@@ -13,14 +12,12 @@ export default async function StudioSlugLayout({
 
   let profile: { daily_generations: number } | null = null;
   if (user?.id) {
-    try {
-      profile = await prisma.profiles.findUnique({
-        where: { id: user.id },
-        select: { daily_generations: true },
-      });
-    } catch {
-      profile = null;
-    }
+    const { data } = await supabase
+      .from("profiles")
+      .select("daily_generations")
+      .eq("id", user.id)
+      .single();
+    profile = data ?? null;
   }
 
   return (

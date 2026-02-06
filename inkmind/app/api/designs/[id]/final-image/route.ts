@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { createClient } from "@/utils/supabase/server";
-import prisma from "@/lib/db";
 
 const BUCKET = "final-tattoos";
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -30,23 +29,17 @@ export async function POST(
       );
     }
 
-    let design: { id: string; studio_id: string | null } | null = null;
-    let profile: { role: string | null; studio_id: string | null } | null = null;
-    try {
-      design = await prisma.designs.findUnique({
-        where: { id: designId },
-        select: { id: true, studio_id: true },
-      });
-      profile = await prisma.profiles.findUnique({
-        where: { id: authUser.id },
-        select: { role: true, studio_id: true },
-      });
-    } catch {
-      return NextResponse.json(
-        { error: "Service unavailable", message: "Database is temporarily unreachable." },
-        { status: 503 }
-      );
-    }
+    const { data: design } = await supabase
+      .from("designs")
+      .select("id, studio_id")
+      .eq("id", designId)
+      .single();
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role, studio_id")
+      .eq("id", authUser.id)
+      .single();
 
     if (!design) {
       return NextResponse.json(
@@ -56,6 +49,7 @@ export async function POST(
     }
 
     const isStudioAdmin =
+      design &&
       profile?.studio_id === design.studio_id &&
       profile?.role === "STUDIO_ADMIN";
 
@@ -124,10 +118,10 @@ export async function POST(
       data: { publicUrl },
     } = supabase.storage.from(BUCKET).getPublicUrl(path);
 
-    await prisma.designs.update({
-      where: { id: designId },
-      data: { final_image_url: publicUrl, updated_at: new Date() },
-    });
+    await supabase
+      .from("designs")
+      .update({ final_image_url: publicUrl })
+      .eq("id", designId);
 
     return NextResponse.json({ url: publicUrl });
   } catch (err) {

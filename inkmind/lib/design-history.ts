@@ -1,4 +1,4 @@
-import prisma from "@/lib/db";
+import { createClient } from "@/utils/supabase/server";
 
 export type DesignHistoryItem = {
   id: string;
@@ -15,17 +15,12 @@ export async function getDesignHistoryChain(designId: string): Promise<{
   design: { id: string; image_url: string | null; prompt: string | null; reference_image_url: string | null; parent_id: string | null };
   ancestors: DesignHistoryItem[];
 } | null> {
-  const design = await prisma.designs.findUnique({
-    where: { id: designId },
-    select: {
-      id: true,
-      image_url: true,
-      prompt: true,
-      reference_image_url: true,
-      parent_id: true,
-      created_at: true,
-    },
-  });
+  const supabase = await createClient();
+  const { data: design } = await supabase
+    .from("designs")
+    .select("id, image_url, prompt, reference_image_url, parent_id, created_at")
+    .eq("id", designId)
+    .single();
 
   if (!design) return null;
 
@@ -33,16 +28,17 @@ export async function getDesignHistoryChain(designId: string): Promise<{
   let parentId = design.parent_id;
 
   while (parentId) {
-    const parent = await prisma.designs.findUnique({
-      where: { id: parentId },
-      select: { id: true, image_url: true, prompt: true, parent_id: true, created_at: true },
-    });
+    const { data: parent } = await supabase
+      .from("designs")
+      .select("id, image_url, prompt, parent_id, created_at")
+      .eq("id", parentId)
+      .single();
     if (!parent) break;
     ancestors.unshift({
       id: parent.id,
       image_url: parent.image_url,
       prompt: parent.prompt,
-      created_at: parent.created_at,
+      created_at: new Date(parent.created_at),
     });
     parentId = parent.parent_id;
   }

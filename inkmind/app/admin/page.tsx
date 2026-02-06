@@ -1,5 +1,4 @@
 import { createClient } from "@/utils/supabase/server";
-import prisma from "@/lib/db";
 import AdminDesignRow from "./AdminDesignRow";
 import AdminMaintenance from "./AdminMaintenance";
 
@@ -12,28 +11,31 @@ export default async function AdminPage() {
   const supabase = await createClient();
   const { data: { user: authUser } } = await supabase.auth.getUser();
 
-  if (!authUser?.email) {
+  if (!authUser?.id) {
     return null;
   }
 
-  const admin = await prisma.user.findFirst({
-    where: { email: authUser.email, isAdmin: true },
-  });
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin, role, studio_id")
+    .eq("id", authUser.id)
+    .single();
 
-  if (!admin) {
+  const isAdmin = profile?.is_admin || profile?.role === "SUPER_ADMIN";
+  if (!isAdmin) {
     return null;
   }
 
-  const designs = await prisma.design.findMany({
-    where: {
-      studio: { ownerId: admin.id },
-    },
-    orderBy: { createdAt: "desc" },
-    include: {
-      client: { select: { email: true } },
-      studio: { select: { name: true } },
-    },
-  });
+  const studioId = profile?.studio_id ?? null;
+  const { data: designs } = studioId
+    ? await supabase
+        .from("designs")
+        .select("id, prompt, image_url, status, created_at")
+        .eq("studio_id", studioId)
+        .order("created_at", { ascending: false })
+    : { data: [] as { id: string; prompt: string | null; image_url: string | null; status: string; created_at: string }[] };
+
+  const list = designs ?? [];
 
   return (
     <>
@@ -41,7 +43,7 @@ export default async function AdminPage() {
         Studio Dashboard
       </h1>
       <p className="mt-2 text-[var(--grey)]">
-        Designs for studios you own. Mark deposit received to unlock high-res download for the client.
+        Designs for your studio. Mark deposit received to unlock high-res download for the client.
       </p>
 
       <section className="mt-8">
@@ -49,7 +51,7 @@ export default async function AdminPage() {
       </section>
 
       <div className="mt-8 overflow-x-auto rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)]">
-        {designs.length === 0 ? (
+        {list.length === 0 ? (
           <div className="p-8 text-center text-[var(--grey)]">
             No designs yet. When clients save designs from your studio, they will appear here.
           </div>
@@ -72,15 +74,15 @@ export default async function AdminPage() {
               </tr>
             </thead>
             <tbody>
-              {designs.map((d) => (
+              {list.map((d) => (
                 <AdminDesignRow
                   key={d.id}
                   design={{
                     id: d.id,
-                    prompt: d.prompt,
-                    imageUrl: d.imageUrl,
-                    isPaid: d.isPaid,
-                    clientEmail: d.client?.email ?? null,
+                    prompt: d.prompt ?? "",
+                    imageUrl: d.image_url ?? "",
+                    isPaid: false,
+                    clientEmail: null,
                   }}
                 />
               ))}

@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import prisma from "@/lib/db";
 
 /**
- * GET /api/designs/[id] — get one design if it belongs to the current user.
+ * GET /api/designs/[id] — get one design if it belongs to the current user (profile_id).
  */
 export async function GET(
   _req: NextRequest,
@@ -21,22 +20,12 @@ export async function GET(
       );
     }
 
-    const prismaUser = await prisma.user.findFirst({
-      where: {
-        OR: [{ authId: authUser.id }, { email: authUser.email ?? undefined }],
-      },
-    });
-
-    if (!prismaUser) {
-      return NextResponse.json(
-        { error: "Forbidden", message: "No account found." },
-        { status: 403 }
-      );
-    }
-
-    const design = await prisma.design.findFirst({
-      where: { id, clientId: prismaUser.id },
-    });
+    const { data: design } = await supabase
+      .from("designs")
+      .select("*")
+      .eq("id", id)
+      .eq("profile_id", authUser.id)
+      .single();
 
     if (!design) {
       return NextResponse.json(

@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import prisma from "@/lib/db";
 import { createClient } from "@/utils/supabase/server";
 import PortfolioManager from "../PortfolioManager";
 
@@ -11,10 +10,12 @@ type Props = {
 
 export async function generateMetadata({ params }: Props) {
   const { slug } = await params;
-  const studio = await prisma.studios.findUnique({
-    where: { slug },
-    select: { name: true },
-  });
+  const supabase = await createClient();
+  const { data: studio } = await supabase
+    .from("studios")
+    .select("name")
+    .eq("slug", slug)
+    .single();
   return {
     title: studio ? `Portfolio · ${studio.name} | InkMind` : "Studio Portfolio | InkMind",
   };
@@ -29,62 +30,43 @@ export default async function StudioPortfolioPage({ params }: Props) {
     redirect("/login");
   }
 
-  let studio: { id: string; name: string; slug: string } | null = null;
-  let profile: { role: string | null; studio_id: string | null } | null = null;
-  let portfolio: Array<{
-    id: string;
-    image_url: string;
-    title: string | null;
-    style_tags: string[];
-    technical_notes: string | null;
-    created_at: Date | null;
-  }> = [];
-  try {
-    studio = await prisma.studios.findUnique({
-      where: { slug },
-      select: { id: true, name: true, slug: true },
-    });
-    if (!studio) {
-      notFound();
-    }
-    profile = await prisma.profiles.findUnique({
-      where: { id: authUser.id },
-      select: { role: true, studio_id: true },
-    });
-    portfolio = await prisma.studio_portfolio.findMany({
-      where: { studio_id: studio.id },
-      orderBy: { created_at: "desc" },
-      select: {
-        id: true,
-        image_url: true,
-        title: true,
-        style_tags: true,
-        technical_notes: true,
-        created_at: true,
-      },
-    });
-  } catch {
-    redirect("/");
-  }
+  const { data: studio } = await supabase
+    .from("studios")
+    .select("id, name, slug")
+    .eq("slug", slug)
+    .single();
 
   if (!studio) {
     notFound();
   }
 
-  const isStudioAdmin =
-    profile?.studio_id === studio.id && profile?.role === "STUDIO_ADMIN";
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role, studio_id")
+    .eq("id", authUser.id)
+    .single();
 
+  const isStudioAdmin =
+    (profile?.studio_id === studio.id && profile?.role === "STUDIO_ADMIN") ?? false;
   if (!isStudioAdmin) {
     redirect(`/${slug}`);
   }
 
+  const { data: portfolioRows } = await supabase
+    .from("studio_portfolio")
+    .select("id, image_url, title, style_tags, technical_notes, created_at")
+    .eq("studio_id", studio.id)
+    .order("created_at", { ascending: false });
+
+  const portfolio = portfolioRows ?? [];
+
   const entries = portfolio.map((p) => ({
     id: p.id,
     image_url: p.image_url,
-    title: p.title,
-    style_tags: p.style_tags ?? [],
+    title: p.title ?? null,
+    style_tags: (p.style_tags ?? []) as string[],
     technical_notes: p.technical_notes,
-    created_at: (p.created_at ?? new Date()).toISOString(),
+    created_at: (p.created_at ? new Date(p.created_at).toISOString() : new Date().toISOString()),
   }));
 
   return (

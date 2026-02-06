@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import prisma from "@/lib/db";
 
 /**
- * GET /api/designs — list designs for the current user (clientId = Prisma user id).
+ * GET /api/designs — list designs for the current user (profile_id = auth user id).
  */
 export async function GET() {
   try {
@@ -17,33 +16,21 @@ export async function GET() {
       );
     }
 
-    const prismaUser = await prisma.user.findFirst({
-      where: {
-        OR: [{ authId: authUser.id }, { email: authUser.email ?? undefined }],
-      },
-    });
+    const { data: designs } = await supabase
+      .from("designs")
+      .select("id, prompt, image_url, status, created_at")
+      .eq("profile_id", authUser.id)
+      .order("created_at", { ascending: false });
 
-    if (!prismaUser) {
-      return NextResponse.json(
-        { error: "Forbidden", message: "No account found." },
-        { status: 403 }
-      );
-    }
+    const normalized = (designs ?? []).map((d) => ({
+      id: d.id,
+      prompt: d.prompt,
+      imageUrl: d.image_url,
+      status: d.status,
+      createdAt: d.created_at,
+    }));
 
-    const designs = await prisma.design.findMany({
-      where: { clientId: prismaUser.id },
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        prompt: true,
-        imageUrl: true,
-        status: true,
-        createdAt: true,
-        isPaid: true,
-      },
-    });
-
-    return NextResponse.json({ designs });
+    return NextResponse.json({ designs: normalized });
   } catch (error) {
     console.error("[InkMind] GET /api/designs error:", error);
     return NextResponse.json(

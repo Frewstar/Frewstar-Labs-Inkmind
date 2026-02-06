@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/db";
+import { createClient } from "@/utils/supabase/server";
 
 /**
  * GET /api/designs/[id]/public — return image_url and prompt for a design (no auth).
@@ -11,10 +11,12 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const design = await prisma.designs.findUnique({
-      where: { id },
-      select: { image_url: true, prompt: true },
-    });
+    const supabase = await createClient();
+    const { data: design } = await supabase
+      .from("designs")
+      .select("image_url, prompt")
+      .eq("id", id)
+      .single();
     if (!design) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }

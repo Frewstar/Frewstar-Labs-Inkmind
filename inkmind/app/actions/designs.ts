@@ -1,6 +1,5 @@
 "use server";
 
-import prisma from "@/lib/db";
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
 
@@ -30,10 +29,11 @@ export async function deleteMyDesign(designId: string): Promise<{ error?: string
       return { error: "Unauthorized" };
     }
 
-    const design = await prisma.designs.findUnique({
-      where: { id: designId },
-      select: { profile_id: true, reference_image_url: true, image_url: true },
-    });
+    const { data: design } = await supabase
+      .from("designs")
+      .select("profile_id, reference_image_url, image_url")
+      .eq("id", designId)
+      .single();
 
     if (!design || design.profile_id !== authUser.id) {
       return { error: "Design not found or you don't have permission to delete it" };
@@ -55,10 +55,7 @@ export async function deleteMyDesign(designId: string): Promise<{ error?: string
       await supabase.storage.from(bucket).remove([path]);
     }
 
-    // Only after storage cleanup to avoid orphan images
-    await prisma.designs.delete({
-      where: { id: designId },
-    });
+    await supabase.from("designs").delete().eq("id", designId);
 
     revalidatePath("/");
     return {};
@@ -80,20 +77,18 @@ export async function toggleFavorite(designId: string): Promise<{ error?: string
       return { error: "Unauthorized" };
     }
 
-    const design = await prisma.designs.findUnique({
-      where: { id: designId },
-      select: { profile_id: true, is_starred: true },
-    });
+    const { data: design } = await supabase
+      .from("designs")
+      .select("profile_id, is_starred")
+      .eq("id", designId)
+      .single();
 
     if (!design || design.profile_id !== authUser.id) {
       return { error: "Design not found or you don't have permission to change it" };
     }
 
     const nextStarred = !design.is_starred;
-    await prisma.designs.update({
-      where: { id: designId },
-      data: { is_starred: nextStarred },
-    });
+    await supabase.from("designs").update({ is_starred: nextStarred }).eq("id", designId);
 
     revalidatePath("/");
     return { isStarred: nextStarred };

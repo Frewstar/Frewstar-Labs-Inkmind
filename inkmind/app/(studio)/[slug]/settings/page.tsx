@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import prisma from "@/lib/db";
 import { createClient } from "@/utils/supabase/server";
 import StudioSettingsForm from "./StudioSettingsForm";
 import StyleSettings from "./StyleSettings";
@@ -12,10 +11,12 @@ type Props = {
 
 export async function generateMetadata({ params }: Props) {
   const { slug } = await params;
-  const studio = await prisma.studios.findUnique({
-    where: { slug },
-    select: { name: true },
-  });
+  const supabase = await createClient();
+  const { data: studio } = await supabase
+    .from("studios")
+    .select("name")
+    .eq("slug", slug)
+    .single();
   return {
     title: studio ? `Settings · ${studio.name} | InkMind` : "Studio Settings | InkMind",
   };
@@ -30,44 +31,24 @@ export default async function StudioSettingsPage({ params }: Props) {
     redirect("/login");
   }
 
-  let studio: Awaited<ReturnType<typeof prisma.studios.findUnique>> = null;
-  let profile: Awaited<ReturnType<typeof prisma.profiles.findUnique>> = null;
-  try {
-    studio = await prisma.studios.findUnique({
-      where: { slug },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        logo_url: true,
-        instagram_url: true,
-        facebook_url: true,
-        contact_email: true,
-        contact_phone: true,
-        address: true,
-        ai_name: true,
-        artist_voice_tone: true,
-        ai_personality_prompt: true,
-        studio_specialties: true,
-        style_adherence: true,
-      },
-    });
-    profile = studio
-      ? await prisma.profiles.findUnique({
-          where: { id: authUser.id },
-          select: { role: true, studio_id: true },
-        })
-      : null;
-  } catch {
-    redirect("/");
-  }
+  const { data: studio } = await supabase
+    .from("studios")
+    .select("id, name, slug, logo_url, instagram_url, facebook_url, contact_email, contact_phone, address, ai_name, artist_voice_tone, ai_personality_prompt, studio_specialties, style_adherence")
+    .eq("slug", slug)
+    .single();
 
   if (!studio) {
     notFound();
   }
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role, studio_id")
+    .eq("id", authUser.id)
+    .single();
+
   const isStudioAdmin =
-    profile?.studio_id === studio.id && profile?.role === "STUDIO_ADMIN";
+    (profile?.studio_id === studio.id && profile?.role === "STUDIO_ADMIN") ?? false;
 
   if (!isStudioAdmin) {
     redirect(`/${slug}`);

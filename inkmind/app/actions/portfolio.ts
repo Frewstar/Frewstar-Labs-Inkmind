@@ -2,7 +2,7 @@
 
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateText } from "ai";
-import prisma from "@/lib/db";
+import { createClient } from "@/utils/supabase/server";
 
 const google = createGoogleGenerativeAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -29,21 +29,22 @@ export async function extractStudioDNA(
     return { error: "GEMINI_API_KEY is not configured." };
   }
 
-  const portfolio = await prisma.studio_portfolio.findMany({
-    where: { studio_id: studioId },
-    take: 3,
-    orderBy: { created_at: "desc" },
-    select: { image_url: true },
-  });
+  const supabase = await createClient();
+  const { data: portfolio } = await supabase
+    .from("studio_portfolio")
+    .select("image_url")
+    .eq("studio_id", studioId)
+    .order("created_at", { ascending: false })
+    .limit(3);
 
-  if (portfolio.length === 0) {
+  if (!portfolio?.length) {
     return { error: "Upload some work first!" };
   }
 
   try {
     const imageParts: { type: "image"; image: string; mediaType: string }[] = [];
 
-    for (const item of portfolio) {
+    for (const item of portfolio as { image_url: string }[]) {
       const resp = await fetch(item.image_url);
       if (!resp.ok) continue;
       const buffer = await resp.arrayBuffer();

@@ -3,7 +3,6 @@ import { randomUUID } from "crypto";
 import Replicate from "replicate";
 import { getAccessToken } from "@/lib/google-auth";
 import { createClient } from "@/utils/supabase/server";
-import prisma from "@/lib/db";
 import { getStyleById } from "@/lib/tattoo-styles";
 import { saveGeneratedImageToLocal } from "@/lib/local-storage";
 import { persistGeneratedTattoo } from "@/app/actions/ross";
@@ -70,15 +69,17 @@ export async function POST(req: NextRequest) {
 
     if (authUser?.id) {
       try {
-        const profile = await prisma.profiles.findUnique({
-          where: { id: authUser.id },
-          select: { id: true, is_admin: true, daily_generations: true, role: true },
-        });
+        const supabase = await createClient();
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("id, is_admin, daily_generations, role")
+          .eq("id", authUser.id)
+          .single();
         if (profile) {
           prismaUser = {
             id: profile.id,
-            isAdmin: profile.is_admin,
-            dailyGenerations: profile.daily_generations,
+            isAdmin: profile.is_admin ?? false,
+            dailyGenerations: profile.daily_generations ?? 0,
             role: profile.role,
           };
           isQuotaExempt =
@@ -132,10 +133,12 @@ export async function POST(req: NextRequest) {
     // Resolve reference URL: explicit URL, or from parent_id (fetch parent design's image_url)
     let referenceUrl = referenceImageUrl ?? reference_image_url;
     if (parentId && !referenceUrl && !referenceImage) {
-      const parentDesign = await prisma.designs.findUnique({
-        where: { id: parentId },
-        select: { image_url: true },
-      });
+      const supabase = await createClient();
+      const { data: parentDesign } = await supabase
+        .from("designs")
+        .select("image_url")
+        .eq("id", parentId)
+        .single();
       if (parentDesign?.image_url) {
         referenceUrl = parentDesign.image_url;
       }
@@ -246,10 +249,18 @@ export async function POST(req: NextRequest) {
     }
 
     if (!isGuest && prismaUser && !isQuotaExempt) {
-      await prisma.profiles.update({
-        where: { id: prismaUser.id },
-        data: { daily_generations: { decrement: 1 } },
-      });
+      const supabase = await createClient();
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("daily_generations")
+        .eq("id", prismaUser.id)
+        .single();
+      if (profile?.daily_generations != null) {
+        await supabase
+          .from("profiles")
+          .update({ daily_generations: Math.max(0, profile.daily_generations - 1) })
+          .eq("id", prismaUser.id);
+      }
     }
 
     const useLocalStorage = process.env.USE_LOCAL_STORAGE === "true";
@@ -305,19 +316,24 @@ export async function POST(req: NextRequest) {
           }
           uploadedUrls.push(imageUrl);
 
-          const design = await prisma.designs.create({
-            data: {
-              profile_id: profileId,
-              studio_id: targetStudio.id,
-              image_url: imageUrl,
-              prompt: promptForDb,
-              reference_image_url: referenceUrl ?? null,
-              parent_id: parentId ?? null,
-              status: "draft",
-            },
-            select: { id: true },
-          });
-          if (i === 0) designId = design.id;
+          const { data: design } = await supabase
+            .from("designs")
+            .insert([
+              {
+                profile_id: profileId,
+                studio_id: targetStudio.id,
+                image_url: imageUrl,
+                prompt: promptForDb,
+                reference_image_url: referenceUrl ?? null,
+                parent_id: parentId ?? null,
+                status: "draft",
+                is_starred: false,
+                iteration_strength: referenceUrl || parentId ? referenceStrength : null,
+              },
+            ])
+            .select("id")
+            .single();
+          if (i === 0 && design?.id) designId = design.id;
         }
         // Return URLs so the client can persist last generation in localStorage without quota issues
         designsToReturn = uploadedUrls;
@@ -413,13 +429,15 @@ function parseReferenceImage(ref: string): { data: string; mimeType: string } {
 
 /** Fetch combined Style Instructions (DNA) from studio_portfolio technical_notes for injection into Schnell prompts. */
 async function getStudioStyleInstructions(studioId: string): Promise<string | null> {
-  const entries = await prisma.studio_portfolio.findMany({
-    where: { studio_id: studioId, technical_notes: { not: null } },
-    select: { technical_notes: true },
-    orderBy: { created_at: "desc" },
-    take: 5,
-  });
-  const parts = entries
+  const supabase = await createClient();
+  const { data: entries } = await supabase
+    .from("studio_portfolio")
+    .select("technical_notes")
+    .eq("studio_id", studioId)
+    .not("technical_notes", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(5);
+  const parts = (entries ?? [])
     .map((e) => e.technical_notes?.trim())
     .filter((t): t is string => !!t);
   if (parts.length === 0) return null;
@@ -436,21 +454,18 @@ async function buildBespokeSchnellPrompt(
   studioSlug: string,
   fullPrompt: string
 ): Promise<{ prompt: string; guidanceScale: number }> {
-  const studio = await prisma.studios.findUnique({
-    where: { slug: studioSlug },
-    select: {
-      id: true,
-      ai_personality_prompt: true,
-      studio_specialties: true,
-      style_adherence: true,
-    },
-  });
+  const supabase = await createClient();
+  const { data: studio } = await supabase
+    .from("studios")
+    .select("id, ai_personality_prompt, studio_specialties, style_adherence")
+    .eq("slug", studioSlug)
+    .single();
 
   const styleDNA =
     (studio?.ai_personality_prompt?.trim()) ||
     (studio?.id ? await getStudioStyleInstructions(studio.id) : null) ||
     "Professional tattoo flash style";
-  const specialtyList = studio?.studio_specialties ?? [];
+  const specialtyList = (studio?.studio_specialties ?? []) as string[];
   const specialties = specialtyList.length > 0 ? specialtyList.join(", ") : "";
 
   const technicalSpecs =
@@ -474,29 +489,40 @@ async function buildBespokeSchnellPrompt(
 
 /** Resolve studio for saving: use requested slug if provided and exists, else default. */
 async function resolveStudioForSave(requestedSlug?: string | null): Promise<{ id: string }> {
+  const supabase = await createClient();
   const slug = (requestedSlug ?? "").trim() || DEFAULT_STUDIO_SLUG;
-  let studio = await prisma.studios.findUnique({
-    where: { slug },
-    select: { id: true },
-  });
-  if (!studio && slug === DEFAULT_STUDIO_SLUG) {
-    studio = await prisma.studios.create({
-      data: { slug: DEFAULT_STUDIO_SLUG, name: "InkMind Default" },
-      select: { id: true },
-    });
+  const { data: studio } = await supabase
+    .from("studios")
+    .select("id")
+    .eq("slug", slug)
+    .single();
+
+  if (studio) return studio;
+
+  if (slug === DEFAULT_STUDIO_SLUG) {
+    const { data: created } = await supabase
+      .from("studios")
+      .insert([{ slug: DEFAULT_STUDIO_SLUG, name: "InkMind Default" }])
+      .select("id")
+      .single();
+    if (created) return created;
   }
-  if (!studio) {
-    const fallback = await prisma.studios.findUnique({
-      where: { slug: DEFAULT_STUDIO_SLUG },
-      select: { id: true },
-    });
-    if (fallback) return fallback;
-    return prisma.studios.create({
-      data: { slug: DEFAULT_STUDIO_SLUG, name: "InkMind Default" },
-      select: { id: true },
-    });
-  }
-  return studio;
+
+  const { data: fallback } = await supabase
+    .from("studios")
+    .select("id")
+    .eq("slug", DEFAULT_STUDIO_SLUG)
+    .single();
+  if (fallback) return fallback;
+
+  const { data: created } = await supabase
+    .from("studios")
+    .insert([{ slug: DEFAULT_STUDIO_SLUG, name: "InkMind Default" }])
+    .select("id")
+    .single();
+  if (created) return created;
+
+  throw new Error("Could not resolve or create default studio");
 }
 
 /** Upload a base64 data-URL image to Supabase storage; returns public URL or null. Tags with studio_id for scoped storage. */

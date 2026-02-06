@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import sharp from "sharp";
-import prisma from "@/lib/db";
+import { createClient } from "@/utils/supabase/server";
 
 /**
  * GET /api/download
@@ -58,10 +58,12 @@ export async function GET(request: NextRequest) {
   if (urlParam) {
     imageUrl = decodeURIComponent(urlParam);
   } else if (id) {
-    const design = await prisma.designs.findUnique({
-      where: { id },
-      select: { image_url: true },
-    });
+    const supabase = await createClient();
+    const { data: design } = await supabase
+      .from("designs")
+      .select("image_url")
+      .eq("id", id)
+      .single();
     if (!design?.image_url) {
       return NextResponse.json(
         { error: "Design not found" },

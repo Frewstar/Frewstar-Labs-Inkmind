@@ -844,34 +844,61 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
                     placeholder="e.g. A fine-line blackwork raven with geometric patterns, bold and minimal, for forearm placement"
                     disabled={loading}
                   />
-                  {/* Ross Assistant: style suggestion chips (not a chat box) */}
-                  <div className="mt-3 rounded-lg bg-zinc-900/80 border border-white/10 p-3">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm font-medium text-zinc-300">Ross Assistant</span>
-                      {rossLoading && (
-                        <span className="text-xs text-zinc-500">Thinking…</span>
+                  {/* Studio Assistant: style suggestion chips (not a chat box) */}
+                  <div className="mt-4 rounded-[var(--radius-lg)] bg-[var(--bg-card)] border border-white/10 p-4 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-[var(--gold)] opacity-5 rounded-full blur-3xl pointer-events-none" />
+                    <div className="relative">
+                      <div className="flex items-center gap-2 mb-3">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                          <path d="M9 2v6l-3 1" />
+                          <path d="M15 2v6l3 1" />
+                          <path d="M12 8v13" />
+                          <path d="M9 21h6" />
+                        </svg>
+                        <span className="text-sm font-semibold text-[var(--white)] font-[var(--font-head)]">
+                          Studio Assistant
+                        </span>
+                        {rossLoading && (
+                          <span className="text-xs text-[var(--grey)] ml-auto animate-pulse">Thinking…</span>
+                        )}
+                        {rossError && (
+                          <span className="text-xs text-[var(--red)] ml-auto">{rossError}</span>
+                        )}
+                      </div>
+                      {rossSuggestions.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs text-[var(--grey)] uppercase tracking-wider font-medium">
+                            Style Enhancers
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {rossSuggestions.map((s, i) => (
+                              <button
+                                key={i}
+                                type="button"
+                                className="studio-assistant-suggestion group px-3 py-2 rounded-[var(--radius)] text-sm border border-white/10 bg-[var(--bg)] text-[var(--white)] hover:bg-[var(--gold-dim)] hover:border-[var(--gold)]/30 hover:text-[var(--gold)] transition-all duration-200"
+                                style={{ animationDelay: `${i * 40}ms` }}
+                                onClick={() => {
+                                  const sep = manualPrompt.trim().endsWith(",") || !manualPrompt.trim() ? "" : ", ";
+                                  setManualPrompt((p) => p.trim() + sep + s);
+                                }}
+                              >
+                                <span className="inline-flex items-center gap-1.5">
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 opacity-60 group-hover:opacity-100">
+                                    <polyline points="9 18 15 12 9 6" />
+                                  </svg>
+                                  {s}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       )}
-                      {rossError && (
-                        <span className="text-xs text-amber-500/90">{rossError}</span>
+                      {!rossLoading && rossSuggestions.length === 0 && !rossError && (
+                        <p className="text-xs text-[var(--grey)] italic">
+                          Start typing your tattoo idea to get professional suggestions…
+                        </p>
                       )}
                     </div>
-                    {rossSuggestions.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {rossSuggestions.map((s, i) => (
-                          <button
-                            key={i}
-                            type="button"
-                            onClick={() => {
-                              const sep = manualPrompt.trim().endsWith(",") || !manualPrompt.trim() ? "" : ", ";
-                              setManualPrompt((p) => p.trim() + sep + s);
-                            }}
-                            className="px-3 py-1.5 rounded-md text-sm border border-white/10 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:border-amber-500/30 hover:text-amber-400/90 transition-colors"
-                          >
-                            {s}
-                          </button>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
@@ -896,9 +923,23 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
                   ))}
                 </select>
                 {rossLongevityAlert && (
-                  <div className="flex-1 min-w-[200px] rounded-lg bg-zinc-900 border border-amber-500/20 p-3 text-sm text-amber-400/95">
-                    <span className="font-medium text-amber-400/90">Artist tip</span>
-                    <p className="mt-1 text-amber-200/80">{rossLongevityAlert}</p>
+                  <div className="flex-1 min-w-[200px] rounded-[var(--radius-lg)] bg-[var(--gold-dim)] border border-[var(--gold)]/30 p-4 relative overflow-hidden">
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-[var(--gold)]" />
+                    <div className="flex items-start gap-3 pl-2">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 shrink-0 mt-0.5">
+                        <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5" />
+                        <path d="M9 18h6" />
+                        <path d="M10 22h4" />
+                      </svg>
+                      <div className="flex-1">
+                        <p className="text-xs font-semibold text-[var(--gold)] uppercase tracking-wider mb-1">
+                          Artist Insight
+                        </p>
+                        <p className="text-sm text-[var(--white)] leading-relaxed">
+                          {rossLongevityAlert}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 )}
                 <button

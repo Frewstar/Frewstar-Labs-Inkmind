@@ -1,4 +1,4 @@
-import prisma from "@/lib/db";
+import { createClient } from "@/utils/supabase/server";
 import { getCurrentSuperAdminProfile } from "@/app/admin/actions";
 import SuperStudiosForm from "./SuperStudiosForm";
 import Link from "next/link";
@@ -15,32 +15,34 @@ export const metadata = {
 };
 
 export default async function SuperStudiosPage() {
-  const [studios, totalStudios, totalDesigns, topStudio, currentUserProfile] = await Promise.all([
-    prisma.studios.findMany({
-      orderBy: { name: "asc" },
-      include: {
-        profiles: {
-          where: { role: "STUDIO_ADMIN" },
-          take: 1,
-          include: {
-            users: { select: { email: true } },
-          },
-        },
-        _count: { select: { designs: true } },
-      },
-    }),
-    prisma.studios.count(),
-    prisma.designs.count(),
-    prisma.studios.findFirst({
-      orderBy: { designs: { _count: "desc" } },
-      select: { name: true, slug: true, _count: { select: { designs: true } } },
-    }),
-    getCurrentSuperAdminProfile(),
+  const supabase = await createClient();
+  const [studiosRes, designsRes] = await Promise.all([
+    supabase.from("studios").select("id, name, slug, logo_url, contact_email, contact_phone, address").order("name", { ascending: true }),
+    supabase.from("designs").select("studio_id"),
   ]);
 
+  const studios = studiosRes.data ?? [];
+  const designCountByStudio = new Map<string, number>();
+  for (const d of designsRes.data ?? []) {
+    if (d.studio_id) {
+      designCountByStudio.set(d.studio_id, (designCountByStudio.get(d.studio_id) ?? 0) + 1);
+    }
+  }
+
+  const totalStudios = studios.length;
+  const totalDesigns = (designsRes.data ?? []).length;
+  const topStudio = studios.length > 0
+    ? studios.reduce((a, b) => {
+        const ac = designCountByStudio.get(a.id) ?? 0;
+        const bc = designCountByStudio.get(b.id) ?? 0;
+        return bc > ac ? b : a;
+      })
+    : null;
+  const topStudioCount = topStudio ? (designCountByStudio.get(topStudio.id) ?? 0) : 0;
+  const currentUserProfile = await getCurrentSuperAdminProfile();
+
   const rows = studios.map((s) => {
-    const admin = s.profiles[0];
-    const designCount = s._count.designs;
+    const designCount = designCountByStudio.get(s.id) ?? 0;
     const estimatedBytes = designCount * ESTIMATE_BYTES_PER_DESIGN;
     const hasLogo = Boolean(s.logo_url?.trim());
     const hasContact =
@@ -52,7 +54,7 @@ export default async function SuperStudiosPage() {
       id: s.id,
       name: s.name,
       slug: s.slug,
-      adminEmail: admin?.users?.email ?? "—",
+      adminEmail: "—",
       designCount,
       storageEstimate: mb(estimatedBytes),
       profileStatus,
@@ -93,8 +95,8 @@ export default async function SuperStudiosPage() {
             <p className="text-xs font-medium uppercase tracking-wider text-[var(--grey)]">
               Top Studio
             </p>
-            <p className="mt-1 text-lg font-semibold text-[var(--white)] truncate" title={topStudio?.name}>
-              {topStudio ? `${topStudio.name} (${topStudio._count.designs} designs)` : "—"}
+            <p className="mt-1 text-lg font-semibold text-[var(--white)] truncate" title={topStudio?.name ?? undefined}>
+              {topStudio ? `${topStudio.name} (${topStudioCount} designs)` : "—"}
             </p>
             {topStudio && (
               <Link

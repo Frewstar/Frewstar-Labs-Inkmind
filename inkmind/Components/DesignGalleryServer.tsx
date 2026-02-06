@@ -1,55 +1,59 @@
 import { createClient } from "@/utils/supabase/server";
-import prisma from "@/lib/db";
+import { resolveStorageUrl } from "@/lib/supabase-storage";
 import DesignGalleryClient from "./DesignGalleryClient";
 
 /**
- * Server Component: fetches the current user's designs using server-side Supabase + Prisma.
- * Passes data as props to DesignGalleryClient (no server code in client bundle).
+ * Server Component: Fetches the current user's designs using the Supabase Client.
+ * This directly queries your local Docker database via the Supabase API.
  */
 export default async function DesignGalleryServer() {
   const supabase = await createClient();
-  const { data: { user: authUser } } = await supabase.auth.getUser();
+  
+  // 1. Get the authenticated user
+  const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
 
-  if (!authUser?.id) {
+  if (!authUser?.id || authError) {
     return <DesignGalleryClient designs={[]} unauthenticated />;
   }
 
-  let rows: Awaited<ReturnType<typeof prisma.designs.findMany>>;
-  try {
-    rows = await prisma.designs.findMany({
-      where: { profile_id: authUser.id },
-      orderBy: { created_at: "desc" },
-      select: {
-        id: true,
-        prompt: true,
-        image_url: true,
-        reference_image_url: true,
-        status: true,
-        is_starred: true,
-        created_at: true,
-      },
-    });
-  } catch (err) {
-    // Database unreachable: wrong DATABASE_URL, Supabase paused (free tier), network, or Postgres down
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn("Design gallery: database unreachable —", msg);
+  // 2. Fetch designs from the 'designs' table
+  // We use .select() to pick exactly the columns we need
+  const { data: rows, error: dbError } = await supabase
+    .from('designs')
+    .select(`
+      id,
+      prompt,
+      image_url,
+      reference_image_url,
+      status,
+      is_starred,
+      created_at
+    `)
+    .eq('profile_id', authUser.id)
+    .order('created_at', { ascending: false });
+
+  // 3. Handle Database Errors (e.g., Table not found, RLS blocking)
+  if (dbError) {
+    console.warn("Design gallery: database unreachable —", dbError.message);
     return (
       <DesignGalleryClient
         designs={[]}
-        dbError="We couldn't connect to the database. If you use Supabase, check that the project isn't paused (free tier pauses after inactivity). Otherwise verify DATABASE_URL in .env and that the database is running."
+        dbError="We couldn't connect to the local database. Ensure 'npx supabase start' is running and your .env.local points to http://127.0.0.1:54321."
       />
     );
   }
 
-  const designs = rows.map((d) => ({
+  // 4. Map the data to the format expected by your Client Component
+  // Use getPublicUrl so images work with both Supabase Cloud and Local
+  const designs = (rows || []).map((d) => ({
     id: d.id,
     prompt: d.prompt ?? "",
-    imageUrl: d.image_url ?? "",
-    referenceImageUrl: d.reference_image_url ?? null,
+    imageUrl: resolveStorageUrl(supabase, d.image_url) ?? "",
+    referenceImageUrl: resolveStorageUrl(supabase, d.reference_image_url) ?? null,
     status: d.status,
-    isStarred: d.is_starred,
-    createdAt: d.created_at.toISOString(),
-    isPaid: false,
+    isStarred: d.is_starred ?? false,
+    createdAt: new Date(d.created_at).toISOString(),
+    isPaid: false, // Defaulting for demo
   }));
 
   return <DesignGalleryClient designs={designs} />;

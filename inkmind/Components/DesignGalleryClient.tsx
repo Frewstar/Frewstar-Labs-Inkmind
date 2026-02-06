@@ -14,7 +14,7 @@ type DesignGalleryClientProps = {
   dbError?: string;
 };
 
-const FADE_MS = 200;
+const FADE_MS = 300;
 
 export default function DesignGalleryClient({
   designs,
@@ -45,6 +45,7 @@ export default function DesignGalleryClient({
       });
     }, FADE_MS);
   }, [isTransitioning]);
+
   if (unauthenticated) {
     return (
       <div className="design-gallery-section rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] p-8 text-center">
@@ -91,44 +92,86 @@ export default function DesignGalleryClient({
   }
 
   return (
-    <div className="design-gallery-section">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h3 className="section-label m-0">My Designs</h3>
-        {designs.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={handleToggleFavorites}
-              disabled={isTransitioning}
-              aria-pressed={showFavoritesOnly}
-              className={`min-h-[var(--touch-min)] rounded-[var(--radius)] border px-4 py-2 text-sm font-medium transition disabled:opacity-70 ${
-                showFavoritesOnly
-                  ? "border-[var(--gold)]/50 bg-[var(--gold-dim)] text-[var(--gold)] hover:bg-[var(--gold-glow)] hover:text-[var(--white)]"
-                  : "border-white/15 bg-white/5 text-[var(--white)] hover:bg-white/10"
-              }`}
-            >
-              Filter by Favorites
-            </button>
-            <span className="text-sm text-[var(--grey)]">
-              Favorites ({favoritesCount})
-            </span>
+    <div className="design-gallery-wrapper">
+      {/* Gallery Header - Elevated typography and controls */}
+      <div className="gallery-header">
+        <div className="gallery-header-content">
+          <div className="gallery-title-group">
+            <h3 className="gallery-title">Your Collection</h3>
+            {designs.length > 0 && (
+              <div className="gallery-count">
+                {filteredDesigns.length} {filteredDesigns.length === 1 ? 'piece' : 'pieces'}
+              </div>
+            )}
           </div>
-        )}
+          
+          {designs.length > 0 && (
+            <div className="gallery-controls">
+              {/* Favorites Toggle - Luxury Switch */}
+              <button
+                type="button"
+                onClick={handleToggleFavorites}
+                disabled={isTransitioning}
+                aria-pressed={showFavoritesOnly}
+                className={`favorites-toggle ${showFavoritesOnly ? 'active' : ''}`}
+              >
+                <span className="favorites-icon">
+                  {showFavoritesOnly ? (
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M8 1.314C12.438-3.248 23.534 4.735 8 15-7.534 4.736 3.562-3.248 8 1.314z"/>
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <path d="M8 1.314C12.438-3.248 23.534 4.735 8 15-7.534 4.736 3.562-3.248 8 1.314z"/>
+                    </svg>
+                  )}
+                </span>
+                <span className="favorites-label">
+                  {showFavoritesOnly ? 'Favorites' : 'All Designs'}
+                </span>
+                {favoritesCount > 0 && (
+                  <span className="favorites-badge">{favoritesCount}</span>
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+        
+        {/* Subtle divider */}
+        <div className="gallery-divider" />
       </div>
+
+      {/* Gallery Grid - Masonry-style luxury layout */}
       {designs.length === 0 ? (
-        <p className="text-[var(--grey)]">
-          No saved designs yet. Generate something in the Design Studio and save it to see it here.
-        </p>
+        <div className="gallery-empty-state">
+          <div className="empty-state-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M12 5v14M5 12h14" strokeLinecap="round"/>
+            </svg>
+          </div>
+          <p className="empty-state-title">No designs yet</p>
+          <p className="empty-state-subtitle">
+            Start creating in the Design Studio to build your collection
+          </p>
+        </div>
       ) : filteredDesigns.length === 0 ? (
-        <p className="text-[var(--grey)]">
-          No starred designs. Star some designs to see them here.
-        </p>
+        <div className="gallery-empty-state">
+          <div className="empty-state-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+            </svg>
+          </div>
+          <p className="empty-state-title">No favorites yet</p>
+          <p className="empty-state-subtitle">
+            Star your favorite designs to see them here
+          </p>
+        </div>
       ) : (
         <div
-          className="grid gap-4 opacity-100 transition-opacity duration-200 ease-out sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          className="gallery-grid"
           style={{
-            gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
             opacity: isTransitioning ? 0 : 1,
+            transform: isTransitioning ? 'translateY(8px)' : 'translateY(0)',
           }}
         >
           {filteredDesigns.map((d) => (

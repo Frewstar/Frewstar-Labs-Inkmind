@@ -1,4 +1,5 @@
-import prisma from "@/lib/db";
+import { resolveStorageUrl } from "@/lib/supabase-storage";
+import { createClient } from "@/utils/supabase/server";
 import AdminDesignsList from "../AdminDesignsList";
 
 export const metadata = {
@@ -13,37 +14,28 @@ type PageProps = {
 export default async function AdminDesignsPage({ searchParams }: PageProps) {
   const resolved = await Promise.resolve(searchParams);
   const query = (resolved.query ?? "").trim();
+  const supabase = await createClient();
 
-  const designs = await prisma.designs.findMany({
-    where:
-      query.length > 0
-        ? {
-            OR: [
-              { prompt: { contains: query, mode: "insensitive" } },
-              { profiles: { users: { email: { contains: query, mode: "insensitive" } } } },
-            ],
-          }
-        : undefined,
-    orderBy: { created_at: "desc" },
-    include: {
-      profiles: {
-        include: {
-          users: { select: { email: true } },
-        },
-      },
-      studios: { select: { name: true } },
-    },
-  });
+  let q = supabase
+    .from("designs")
+    .select("id, prompt, image_url, reference_image_url, status, created_at, profile_id, studio_id, studios ( name )")
+    .order("created_at", { ascending: false });
 
-  const items = designs.map((d) => ({
+  if (query.length > 0) {
+    q = q.ilike("prompt", `%${query}%`);
+  }
+
+  const { data: designs } = await q;
+
+  const items = (designs ?? []).map((d) => ({
     id: d.id,
     prompt: d.prompt ?? "",
-    imageUrl: d.image_url ?? null,
-    referenceImageUrl: d.reference_image_url ?? null,
+    imageUrl: resolveStorageUrl(supabase, d.image_url) ?? null,
+    referenceImageUrl: resolveStorageUrl(supabase, d.reference_image_url) ?? null,
     status: d.status,
-    createdAt: d.created_at.toISOString(),
-    userEmail: d.profiles?.users?.email ?? null,
-    studioName: d.studios?.name ?? null,
+    createdAt: new Date(d.created_at).toISOString(),
+    userEmail: null as string | null,
+    studioName: (d.studios as { name: string } | null)?.name ?? null,
   }));
 
   return (

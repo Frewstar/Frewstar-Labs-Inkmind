@@ -1,5 +1,4 @@
 import { createClient } from "@/utils/supabase/server";
-import prisma from "@/lib/db";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import AdminStorageMeter from "./AdminStorageMeter";
@@ -16,16 +15,11 @@ export default async function AdminLayout({
     redirect("/");
   }
 
-  let profile: { id: string; is_admin: boolean; role: string | null } | null = null;
-  try {
-    profile = await prisma.profiles.findUnique({
-      where: { id: authUser.id },
-      select: { id: true, is_admin: true, role: true },
-    });
-  } catch {
-    // Database unreachable
-    redirect("/");
-  }
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id, is_admin, role")
+    .eq("id", authUser.id)
+    .single();
 
   const isAdmin = profile?.is_admin || profile?.role === "SUPER_ADMIN";
   if (!profile || !isAdmin) {

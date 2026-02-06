@@ -4,7 +4,6 @@ import { randomUUID } from "crypto";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateObject } from "ai";
 import { z } from "zod";
-import prisma from "@/lib/db";
 import { createClient } from "@/utils/supabase/server";
 
 const google = createGoogleGenerativeAI({
@@ -99,7 +98,7 @@ export type RossStudioOverrides = {
 
 /**
  * Ross (Artist Twin): professional tattoo consultant. Uses a dynamic system prompt:
- * accepts studioId, fetches ai_name, ai_personality_prompt, and studio_specialties from the studios table via Prisma,
+ * accepts studioId, fetches ai_name, ai_personality_prompt, and studio_specialties from the studios table via Supabase,
  * or uses overrideStudio when provided (for real-time preview with unsaved form values).
  */
 export async function getRossAdvice(
@@ -132,17 +131,13 @@ export async function getRossAdvice(
           : [],
       };
     } else if (studioId) {
-      const row = await prisma.studios.findUnique({
-        where: { id: studioId },
-        select: {
-          name: true,
-          ai_name: true,
-          ai_personality_prompt: true,
-          artist_voice_tone: true,
-          studio_specialties: true,
-        },
-      });
-      studio = row;
+      const supabase = await createClient();
+      const { data: row } = await supabase
+        .from("studios")
+        .select("name, ai_name, ai_personality_prompt, artist_voice_tone, studio_specialties")
+        .eq("id", studioId)
+        .single();
+      studio = row ?? null;
     }
 
     const system = buildDynamicSystemPrompt(studio);

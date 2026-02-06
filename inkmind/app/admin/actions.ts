@@ -1,7 +1,6 @@
 "use server";
 
 import { randomUUID } from "crypto";
-import prisma from "@/lib/db";
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
 
@@ -59,31 +58,30 @@ export async function markDesignPaid(designId: string): Promise<{ error?: string
   const supabase = await createClient();
   const { data: { user: authUser } } = await supabase.auth.getUser();
 
-  if (!authUser?.email) {
+  if (!authUser?.id) {
     return { error: "Unauthorized" };
   }
 
-  const admin = await prisma.user.findFirst({
-    where: { email: authUser.email, isAdmin: true },
-  });
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin, role, studio_id")
+    .eq("id", authUser.id)
+    .single();
 
-  if (!admin) {
+  const isAdmin = profile?.is_admin || profile?.role === "SUPER_ADMIN";
+  if (!isAdmin) {
     return { error: "Forbidden" };
   }
 
-  const design = await prisma.design.findFirst({
-    where: { id: designId },
-    include: { studio: true },
-  });
+  const { data: design } = await supabase
+    .from("designs")
+    .select("id, studio_id")
+    .eq("id", designId)
+    .single();
 
-  if (!design || design.studio.ownerId !== admin.id) {
+  if (!design || (profile.studio_id && design.studio_id !== profile.studio_id)) {
     return { error: "Design not found or not in your studio" };
   }
-
-  await prisma.design.update({
-    where: { id: designId },
-    data: { isPaid: true },
-  });
 
   revalidatePath("/admin");
   revalidatePath("/admin/pending-designs");
@@ -94,7 +92,7 @@ export async function markDesignPaid(designId: string): Promise<{ error?: string
 /**
  * Delete a design: remove files from Supabase Storage first, then delete the Prisma record.
  * Checks both image_url and reference_image_url; parses bucket + path and calls storage.remove().
- * Only after storage is cleaned do we call prisma.designs.delete() to avoid orphan files.
+ * Only after storage is cleaned do we delete the design record to avoid orphan files.
  * Admin only. Used by admin/designs page.
  */
 export async function deleteDesign(designId: string): Promise<{ error?: string }> {
@@ -106,19 +104,21 @@ export async function deleteDesign(designId: string): Promise<{ error?: string }
       return { error: "Unauthorized" };
     }
 
-    const profile = await prisma.profiles.findUnique({
-      where: { id: authUser.id },
-      select: { is_admin: true },
-    });
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("is_admin")
+      .eq("id", authUser.id)
+      .single();
 
     if (!profile?.is_admin) {
       return { error: "Forbidden" };
     }
 
-    const design = await prisma.designs.findUnique({
-      where: { id: designId },
-      select: { reference_image_url: true, image_url: true },
-    });
+    const { data: design } = await supabase
+      .from("designs")
+      .select("reference_image_url, image_url")
+      .eq("id", designId)
+      .single();
 
     if (!design) {
       return { error: "Design not found" };
@@ -140,10 +140,7 @@ export async function deleteDesign(designId: string): Promise<{ error?: string }
       await supabase.storage.from(bucket).remove([path]);
     }
 
-    // Only after storage cleanup to avoid orphan images in the bucket
-    await prisma.designs.delete({
-      where: { id: designId },
-    });
+    await supabase.from("designs").delete().eq("id", designId);
 
     revalidatePath("/admin/designs");
     revalidatePath("/admin");
@@ -166,29 +163,28 @@ export async function toggleFavorite(designId: string): Promise<{ error?: string
       return { error: "Unauthorized" };
     }
 
-    const profile = await prisma.profiles.findUnique({
-      where: { id: authUser.id },
-      select: { is_admin: true },
-    });
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("is_admin")
+      .eq("id", authUser.id)
+      .single();
 
     if (!profile?.is_admin) {
       return { error: "Forbidden" };
     }
 
-    const design = await prisma.designs.findUnique({
-      where: { id: designId },
-      select: { is_starred: true },
-    });
+    const { data: design } = await supabase
+      .from("designs")
+      .select("is_starred")
+      .eq("id", designId)
+      .single();
 
     if (!design) {
       return { error: "Design not found" };
     }
 
     const nextStarred = !design.is_starred;
-    await prisma.designs.update({
-      where: { id: designId },
-      data: { is_starred: nextStarred },
-    });
+    await supabase.from("designs").update({ is_starred: nextStarred }).eq("id", designId);
 
     revalidatePath("/admin/designs");
     revalidatePath("/admin");
@@ -215,7 +211,7 @@ export type PurgeOldDesignsResult =
 
 /**
  * Auto-purge: delete non-favorite designs older than 30 days.
- * Removes files from Supabase Storage first, then deletes records with prisma.designs.deleteMany.
+ * Removes files from Supabase Storage first, then deletes records from designs.
  * Secured by CRON_SECRET. Supports dry run (default) to only count and estimate size.
  */
 export async function purgeOldDesigns(
@@ -231,19 +227,18 @@ export async function purgeOldDesigns(
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - PURGE_DAYS);
 
-    const designs = await prisma.designs.findMany({
-      where: {
-        is_starred: false,
-        created_at: { lt: cutoff },
-      },
-      select: { image_url: true, reference_image_url: true },
-    });
+    const supabase = await createClient();
+    const { data: designs } = await supabase
+      .from("designs")
+      .select("id, image_url, reference_image_url")
+      .eq("is_starred", false)
+      .lt("created_at", cutoff.toISOString());
 
     const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const byBucket = new Map<string, string[]>();
     let fileCount = 0;
 
-    for (const d of designs) {
+    for (const d of designs ?? []) {
       if (d.reference_image_url && baseUrl && d.reference_image_url.startsWith(baseUrl)) {
         const ref = parseSupabaseStorageUrl(d.reference_image_url);
         if (ref) {
@@ -268,28 +263,25 @@ export async function purgeOldDesigns(
 
     if (isDryRun) {
       return {
-        count: designs.length,
+        count: (designs ?? []).length,
         totalSizeEstimate,
         mode: "dry-run",
       };
     }
 
-    const supabase = await createClient();
     for (const [bucket, paths] of byBucket) {
       await supabase.storage.from(bucket).remove(paths);
     }
 
-    const result = await prisma.designs.deleteMany({
-      where: {
-        is_starred: false,
-        created_at: { lt: cutoff },
-      },
-    });
+    const ids = (designs ?? []).map((d) => d.id);
+    if (ids.length > 0) {
+      await supabase.from("designs").delete().in("id", ids);
+    }
 
     revalidatePath("/admin/designs");
     revalidatePath("/admin");
     return {
-      count: result.count,
+      count: ids.length,
       totalSizeEstimate,
       mode: "live",
     };
@@ -307,26 +299,17 @@ export async function getProfilesForStudioAdmin(search?: string): Promise<{ id: 
   const { data: { user: authUser } } = await supabase.auth.getUser();
   if (!authUser?.id) return [];
 
-  const profile = await prisma.profiles.findUnique({
-    where: { id: authUser.id },
-    select: { is_admin: true, role: true },
-  });
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin, role")
+    .eq("id", authUser.id)
+    .single();
   const isSuperAdmin = profile?.is_admin || profile?.role === "SUPER_ADMIN";
   if (!isSuperAdmin) return [];
 
-  const where = search?.trim()
-    ? { users: { email: { contains: search.trim(), mode: "insensitive" as const } } }
-    : {};
-  const profiles = await prisma.profiles.findMany({
-    where: Object.keys(where).length ? where : undefined,
-    take: 50,
-    orderBy: { created_at: "desc" },
-    select: {
-      id: true,
-      users: { select: { email: true } },
-    },
-  });
-  return profiles.map((p) => ({ id: p.id, email: p.users?.email ?? null }));
+  let q = supabase.from("profiles").select("id").order("created_at", { ascending: false }).limit(50);
+  const { data: profiles } = await q;
+  return (profiles ?? []).map((p) => ({ id: p.id, email: null as string | null }));
 }
 
 /**
@@ -337,13 +320,14 @@ export async function getCurrentSuperAdminProfile(): Promise<{ id: string; email
   const { data: { user: authUser } } = await supabase.auth.getUser();
   if (!authUser?.id) return null;
 
-  const profile = await prisma.profiles.findUnique({
-    where: { id: authUser.id },
-    select: { id: true, is_admin: true, role: true, users: { select: { email: true } } },
-  });
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id, is_admin, role")
+    .eq("id", authUser.id)
+    .single();
   const isSuperAdmin = profile?.is_admin || profile?.role === "SUPER_ADMIN";
   if (!profile || !isSuperAdmin) return null;
-  return { id: profile.id, email: profile.users?.email ?? null };
+  return { id: profile.id, email: authUser.email ?? null };
 }
 
 /**
@@ -360,10 +344,11 @@ export async function createStudioWithAdmin(
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (!authUser?.id) return { error: "Unauthorized" };
 
-    const adminProfile = await prisma.profiles.findUnique({
-      where: { id: authUser.id },
-      select: { is_admin: true, role: true },
-    });
+    const { data: adminProfile } = await supabase
+      .from("profiles")
+      .select("is_admin, role")
+      .eq("id", authUser.id)
+      .single();
     const isSuperAdmin = adminProfile?.is_admin || adminProfile?.role === "SUPER_ADMIN";
     if (!adminProfile || !isSuperAdmin) return { error: "Forbidden" };
 
@@ -371,24 +356,20 @@ export async function createStudioWithAdmin(
     const trimmedSlug = (slug ?? "").trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || "studio";
     if (!trimmedName) return { error: "Name is required" };
 
-    const existing = await prisma.studios.findUnique({ where: { slug: trimmedSlug } });
+    const { data: existing } = await supabase.from("studios").select("id").eq("slug", trimmedSlug).single();
     if (existing) return { error: "A studio with this slug already exists" };
 
-    const profile = await prisma.profiles.findUnique({
-      where: { id: profileId },
-      select: { id: true },
-    });
+    const { data: profile } = await supabase.from("profiles").select("id").eq("id", profileId).single();
     if (!profile) return { error: "Selected profile not found" };
 
-    const studio = await prisma.studios.create({
-      data: { name: trimmedName, slug: trimmedSlug },
-      select: { id: true },
-    });
+    const { data: studio } = await supabase
+      .from("studios")
+      .insert([{ name: trimmedName, slug: trimmedSlug }])
+      .select("id")
+      .single();
+    if (!studio) return { error: "Failed to create studio" };
 
-    await prisma.profiles.update({
-      where: { id: profileId },
-      data: { role: "STUDIO_ADMIN", studio_id: studio.id },
-    });
+    await supabase.from("profiles").update({ role: "STUDIO_ADMIN", studio_id: studio.id }).eq("id", profileId);
 
     revalidatePath("/admin/super/studios");
     revalidatePath("/admin");
@@ -423,16 +404,10 @@ export async function updateStudioRossSettings(
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (!authUser?.id) return { error: "You must be signed in." };
 
-    const studio = await prisma.studios.findUnique({
-      where: { slug },
-      select: { id: true },
-    });
+    const { data: studio } = await supabase.from("studios").select("id").eq("slug", slug).single();
     if (!studio) return { error: "Studio not found." };
 
-    const profile = await prisma.profiles.findUnique({
-      where: { id: authUser.id },
-      select: { role: true, studio_id: true },
-    });
+    const { data: profile } = await supabase.from("profiles").select("role, studio_id").eq("id", authUser.id).single();
     const isStudioAdmin =
       profile?.studio_id === studio.id && profile?.role === "STUDIO_ADMIN";
     if (!isStudioAdmin) return { error: "You do not have permission to edit this studio." };
@@ -453,17 +428,15 @@ export async function updateStudioRossSettings(
           )
         : null;
 
-    await prisma.studios.update({
-      where: { id: studio.id },
-      data: {
-        ai_name,
-        artist_voice_tone,
-        ai_personality_prompt,
-        studio_specialties,
-        ...(style_adherence != null && { style_adherence }),
-        updated_at: new Date(),
-      },
-    });
+    const updatePayload: Record<string, unknown> = {
+      ai_name,
+      artist_voice_tone,
+      ai_personality_prompt,
+      studio_specialties,
+    };
+    if (style_adherence != null) updatePayload.style_adherence = style_adherence;
+
+    await supabase.from("studios").update(updatePayload).eq("id", studio.id);
 
     revalidatePath(`/${slug}`);
     revalidatePath(`/${slug}/settings`);
@@ -487,26 +460,17 @@ export async function updateStudioPersonality(
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (!authUser?.id) return { error: "You must be signed in." };
 
-    const studio = await prisma.studios.findUnique({
-      where: { slug },
-      select: { id: true },
-    });
+    const { data: studio } = await supabase.from("studios").select("id").eq("slug", slug).single();
     if (!studio) return { error: "Studio not found." };
 
-    const profile = await prisma.profiles.findUnique({
-      where: { id: authUser.id },
-      select: { role: true, studio_id: true },
-    });
+    const { data: profile } = await supabase.from("profiles").select("role, studio_id").eq("id", authUser.id).single();
     const isStudioAdmin =
       profile?.studio_id === studio.id && profile?.role === "STUDIO_ADMIN";
     if (!isStudioAdmin) return { error: "You do not have permission to edit this studio." };
 
     const ai_personality_prompt = (personality ?? "").trim() || null;
 
-    await prisma.studios.update({
-      where: { id: studio.id },
-      data: { ai_personality_prompt, updated_at: new Date() },
-    });
+    await supabase.from("studios").update({ ai_personality_prompt }).eq("id", studio.id);
 
     revalidatePath(`/${slug}`);
     revalidatePath(`/${slug}/settings`);
@@ -533,19 +497,13 @@ export async function updateStudioSettings(
       return { error: "You must be signed in to update studio settings." };
     }
 
-    const studio = await prisma.studios.findUnique({
-      where: { slug },
-      select: { id: true },
-    });
+    const { data: studio } = await supabase.from("studios").select("id").eq("slug", slug).single();
 
     if (!studio) {
       return { error: "Studio not found." };
     }
 
-    const profile = await prisma.profiles.findUnique({
-      where: { id: authUser.id },
-      select: { role: true, studio_id: true },
-    });
+    const { data: profile } = await supabase.from("profiles").select("role, studio_id").eq("id", authUser.id).single();
 
     const isStudioAdmin =
       profile?.studio_id === studio.id && profile?.role === "STUDIO_ADMIN";
@@ -582,23 +540,19 @@ export async function updateStudioSettings(
       logo_url = urlData.publicUrl;
     }
 
-    const updateData: Parameters<typeof prisma.studios.update>[0]["data"] = {
+    const updateData: Record<string, unknown> = {
       instagram_url,
       facebook_url,
       contact_email,
       contact_phone,
       address,
-      updated_at: new Date(),
     };
     if (logo_url !== null) updateData.logo_url = logo_url;
     if (ai_name !== undefined) updateData.ai_name = ai_name;
     if (artist_voice_tone !== undefined) updateData.artist_voice_tone = artist_voice_tone;
     if (ai_personality_prompt !== undefined) updateData.ai_personality_prompt = ai_personality_prompt;
 
-    await prisma.studios.update({
-      where: { id: studio.id },
-      data: updateData,
-    });
+    await supabase.from("studios").update(updateData).eq("id", studio.id);
 
     revalidatePath(`/${slug}`);
     revalidatePath(`/${slug}/settings`);
@@ -634,16 +588,10 @@ export async function addStudioPortfolioEntry(
       return { error: "You must be signed in to add portfolio entries." };
     }
 
-    const studio = await prisma.studios.findUnique({
-      where: { slug },
-      select: { id: true },
-    });
+    const { data: studio } = await supabase.from("studios").select("id").eq("slug", slug).single();
     if (!studio) return { error: "Studio not found." };
 
-    const profile = await prisma.profiles.findUnique({
-      where: { id: authUser.id },
-      select: { role: true, studio_id: true },
-    });
+    const { data: profile } = await supabase.from("profiles").select("role, studio_id").eq("id", authUser.id).single();
     const isStudioAdmin =
       profile?.studio_id === studio.id && profile?.role === "STUDIO_ADMIN";
     if (!isStudioAdmin) {
@@ -698,15 +646,15 @@ export async function addStudioPortfolioEntry(
       if (analysis.data?.trim()) notesToSave = analysis.data;
     }
 
-    await prisma.studio_portfolio.create({
-      data: {
+    await supabase.from("studio_portfolio").insert([
+      {
         studio_id: studio.id,
         image_url,
         title,
         style_tags,
         technical_notes: notesToSave || null,
       },
-    });
+    ]);
 
     revalidatePath(`/${slug}`);
     revalidatePath(`/${slug}/settings`);
