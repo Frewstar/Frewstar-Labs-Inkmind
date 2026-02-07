@@ -16,6 +16,7 @@ export type DesignGalleryItem = {
   referenceImageUrl?: string | null;
   status: string;
   isStarred?: boolean;
+  collectionId?: string | null;
   createdAt: string;
   isPaid?: boolean;
 };
@@ -37,7 +38,19 @@ function formatGeneratedDate(iso: string): string {
   }
 }
 
-export default function DesignGalleryCard({ design }: { design: DesignGalleryItem }) {
+type DesignGalleryCardProps = {
+  design: DesignGalleryItem;
+  collections?: { id: string; name: string }[];
+  onToggleFavorite?: (designId: string) => void | Promise<void>;
+  onMoveToCollection?: (designId: string, collectionId: string) => void | Promise<void>;
+};
+
+export default function DesignGalleryCard({
+  design,
+  collections = [],
+  onToggleFavorite: onToggleFavoriteProp,
+  onMoveToCollection: onMoveToCollectionProp,
+}: DesignGalleryCardProps) {
   const router = useRouter();
   const [promptExpanded, setPromptExpanded] = useState(false);
   const [showReference, setShowReference] = useState(false);
@@ -45,6 +58,7 @@ export default function DesignGalleryCard({ design }: { design: DesignGalleryIte
   const [copied, setCopied] = useState(false);
   const [shareFeedback, setShareFeedback] = useState<"shared" | "copied" | null>(null);
   const [starred, setStarred] = useState(design.isStarred ?? false);
+  const [imageError, setImageError] = useState(false);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shareTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -110,6 +124,10 @@ export default function DesignGalleryCard({ design }: { design: DesignGalleryIte
   }
 
   async function handleToggleFavorite() {
+    if (onToggleFavoriteProp) {
+      await onToggleFavoriteProp(design.id);
+      return;
+    }
     const result = await toggleFavorite(design.id);
     if (result.error) {
       alert(result.error);
@@ -132,7 +150,7 @@ export default function DesignGalleryCard({ design }: { design: DesignGalleryIte
   }
 
   return (
-    <div className="design-gallery-card rounded-[var(--radius)] border border-white/10 bg-[var(--bg-card)] overflow-hidden transition hover:border-white/20">
+    <div className="design-gallery-card premium-card overflow-hidden hover-scale press-scale">
       <div className="aspect-square relative bg-[var(--bg)]">
         {showReference && design.referenceImageUrl && (
           <div
@@ -182,14 +200,13 @@ export default function DesignGalleryCard({ design }: { design: DesignGalleryIte
           </div>
         )}
         <div className="tattoo-watermark-wrap absolute inset-0 flex items-center justify-center">
-          {design.imageUrl ? (
-            <Image
+          {design.imageUrl && !imageError ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
               src={design.imageUrl}
               alt={design.prompt.slice(0, 60)}
-              fill
-              className="object-contain"
-              unoptimized
-              sizes="(max-width: 768px) 100vw, 320px"
+              className="absolute inset-0 w-full h-full object-contain"
+              onError={() => setImageError(true)}
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center bg-[var(--bg)] text-[var(--grey)] text-sm" aria-hidden>
@@ -198,14 +215,7 @@ export default function DesignGalleryCard({ design }: { design: DesignGalleryIte
           )}
           <span className="tattoo-watermark" aria-hidden>InkMind</span>
         </div>
-        <span
-          className="absolute top-2 right-11 rounded-full px-2 py-0.5 text-xs font-medium capitalize"
-          style={{
-            background: "var(--bg-card)",
-            color: "var(--grey)",
-            border: "1px solid rgba(255,255,255,0.1)",
-          }}
-        >
+        <span className="absolute top-2 right-11 badge-premium badge-premium-gold capitalize">
           {statusLabel}
         </span>
         <button
@@ -253,7 +263,7 @@ export default function DesignGalleryCard({ design }: { design: DesignGalleryIte
           <button
             type="button"
             onClick={handleCopyPrompt}
-            className="flex min-h-[var(--touch-min)] items-center justify-center gap-2 rounded-[var(--radius)] border border-white/20 bg-white/5 py-2.5 text-sm font-medium text-[var(--white)] transition hover:bg-white/10"
+            className="btn-premium-secondary flex min-h-[var(--touch-min)] items-center justify-center gap-2 py-2.5 w-full"
             aria-label={copied ? "Copied" : "Copy prompt"}
             title="Copy prompt to clipboard"
           >
@@ -267,7 +277,7 @@ export default function DesignGalleryCard({ design }: { design: DesignGalleryIte
           <button
             type="button"
             onClick={handleShare}
-            className="flex min-h-[var(--touch-min)] items-center justify-center gap-2 rounded-[var(--radius)] border border-white/20 bg-white/5 py-2.5 text-sm font-medium text-[var(--white)] transition hover:bg-white/10"
+            className="btn-premium-secondary flex min-h-[var(--touch-min)] items-center justify-center gap-2 py-2.5 w-full"
             aria-label={shareFeedback ? (shareFeedback === "copied" ? "Link copied" : "Shared") : "Share link"}
             title="Copy share link"
           >
@@ -278,16 +288,50 @@ export default function DesignGalleryCard({ design }: { design: DesignGalleryIte
           </button>
           <Link
             href={`/?tweak=${design.id}#studio`}
-            className="block w-full rounded-[var(--radius)] border border-[var(--gold)]/30 bg-[var(--gold-dim)] py-2 text-center text-sm font-medium text-[var(--gold)] transition hover:border-[var(--gold)] hover:bg-[var(--gold-glow)] hover:text-[var(--white)]"
+            className="btn-premium-primary block w-full py-2.5 text-center"
           >
             Tweak this Design
           </Link>
+          {collections.length > 0 && (
+            <div className="flex items-center gap-2 w-full">
+              <label htmlFor={`move-${design.id}`} className="text-xs text-[var(--grey)] shrink-0">
+                Move to:
+              </label>
+              <select
+                id={`move-${design.id}`}
+                value={design.collectionId ?? collections[0]?.id ?? ""}
+                onChange={async (e) => {
+                  const collectionId = e.target.value;
+                  if (!collectionId) return;
+                  if (onMoveToCollectionProp) {
+                    await onMoveToCollectionProp(design.id, collectionId);
+                    return;
+                  }
+                  try {
+                    const res = await fetch(`/api/designs/${design.id}/favorite`, {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ collection_id: collectionId }),
+                    });
+                    if (res.ok) router.refresh();
+                  } catch {
+                    // ignore
+                  }
+                }}
+                className="input-premium flex-1 min-w-0 py-2 text-sm"
+              >
+                {collections.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           {design.isPaid && (
             <a
               href={`/api/download?id=${encodeURIComponent(design.id)}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="block w-full rounded-[var(--radius)] border border-white/20 bg-white/5 py-2 text-center text-sm font-medium text-[var(--white)] transition hover:bg-white/10"
+              className="btn-premium-secondary block w-full py-2 text-center"
             >
               Download High Res
             </a>
@@ -296,7 +340,7 @@ export default function DesignGalleryCard({ design }: { design: DesignGalleryIte
             type="button"
             onClick={handleDelete}
             disabled={deleting}
-            className="rounded-[var(--radius)] border border-[var(--red)]/30 bg-[var(--red)]/5 py-2 text-center text-sm font-medium text-[var(--red)] transition hover:bg-[var(--red)]/10 disabled:opacity-50"
+            className="btn-premium-ghost w-full py-2 text-[var(--red)] hover:bg-[var(--red)]/10 disabled:opacity-50"
           >
             {deleting ? "Deleting…" : "Delete"}
           </button>

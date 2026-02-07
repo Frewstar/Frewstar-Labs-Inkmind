@@ -20,6 +20,8 @@ type DesignItem = {
   status: string;
   createdAt: string;
   userEmail: string | null;
+  submittedAt?: string | null;
+  rossReasoning?: string | null;
 };
 type UserItem = { id: string; email: string | null };
 
@@ -41,7 +43,8 @@ export default function StudioAdminDashboard({
   storagePercent,
 }: Props) {
   const router = useRouter();
-  const [tab, setTab] = useState<"overview" | "users">("overview");
+  const [tab, setTab] = useState<"overview" | "needs-review" | "users">("overview");
+  const needsReviewDesigns = designs.filter((d) => d.status === "pending_review");
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
@@ -62,11 +65,11 @@ export default function StudioAdminDashboard({
         paddingBottom: "calc(2rem + var(--safe-bottom))",
       }}
     >
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto max-w-4xl animate-spring-in">
         <header className="mb-8">
           <Link
             href="/"
-            className="text-sm text-[var(--grey)] hover:text-[var(--gold)] transition mb-2 inline-block"
+            className="btn-premium-ghost mb-2 inline-block"
           >
             ← Back to app
           </Link>
@@ -85,10 +88,26 @@ export default function StudioAdminDashboard({
             className={`px-4 py-2 text-sm font-medium transition rounded-t-[var(--radius)] ${
               tab === "overview"
                 ? "bg-[var(--bg-card)] text-[var(--gold)] border border-white/10 border-b-transparent -mb-px"
-                : "text-[var(--grey)] hover:text-[var(--white)]"
+                : "btn-premium-ghost"
             }`}
           >
             Overview
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("needs-review")}
+            className={`px-4 py-2 text-sm font-medium transition rounded-t-[var(--radius)] flex items-center gap-2 ${
+              tab === "needs-review"
+                ? "bg-[var(--bg-card)] text-[var(--gold)] border border-white/10 border-b-transparent -mb-px"
+                : "btn-premium-ghost"
+            }`}
+          >
+            Needs Review
+            {needsReviewDesigns.length > 0 && (
+              <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-amber-500/20 text-amber-400">
+                {needsReviewDesigns.length}
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -96,20 +115,20 @@ export default function StudioAdminDashboard({
             className={`px-4 py-2 text-sm font-medium transition rounded-t-[var(--radius)] ${
               tab === "users"
                 ? "bg-[var(--bg-card)] text-[var(--gold)] border border-white/10 border-b-transparent -mb-px"
-                : "text-[var(--grey)] hover:text-[var(--white)]"
+                : "btn-premium-ghost"
             }`}
           >
             User Management
           </button>
           <Link
             href={`/${studio.slug}/settings/portfolio`}
-            className="px-4 py-2 text-sm font-medium text-[var(--grey)] hover:text-[var(--white)] transition rounded-t-[var(--radius)]"
+            className="btn-premium-ghost px-4 py-2 text-sm font-medium rounded-t-[var(--radius)]"
           >
             Portfolio
           </Link>
           <Link
             href={`/${studio.slug}/settings`}
-            className="px-4 py-2 text-sm font-medium text-[var(--grey)] hover:text-[var(--white)] transition rounded-t-[var(--radius)]"
+            className="btn-premium-ghost px-4 py-2 text-sm font-medium rounded-t-[var(--radius)]"
           >
             Settings
           </Link>
@@ -117,8 +136,8 @@ export default function StudioAdminDashboard({
 
         {tab === "overview" && (
           <div className="space-y-6">
-            <div className="rounded-[var(--radius)] border border-white/10 bg-[var(--bg-card)] p-3">
-              <p className="mb-2 text-xs font-medium text-[var(--grey)]">
+            <div className="premium-metric-card">
+              <p className="mb-2 text-xs font-medium text-[var(--grey)] uppercase tracking-wider">
                 Storage (this studio)
               </p>
               <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
@@ -132,7 +151,7 @@ export default function StudioAdminDashboard({
               </p>
             </div>
 
-            <div className="rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] overflow-hidden">
+            <div className="premium-card overflow-hidden">
               <h2 className="px-4 py-3 text-sm font-semibold text-[var(--white)] border-b border-white/10">
                 Final Design · Designs ({designs.length})
               </h2>
@@ -232,8 +251,103 @@ export default function StudioAdminDashboard({
           </div>
         )}
 
+        {tab === "needs-review" && (
+          <div className="premium-card overflow-hidden">
+            <h2 className="px-4 py-3 text-sm font-semibold text-[var(--white)] border-b border-white/10">
+              Needs Review — Client submitted for final review
+            </h2>
+            <p className="px-4 py-2 text-xs text-[var(--grey)] border-b border-white/10">
+              Original vs Ross Refined · Approve or request adjustments.
+            </p>
+            {needsReviewDesigns.length === 0 ? (
+              <div className="p-8 text-center text-[var(--grey)] text-sm">
+                No designs waiting for review.
+              </div>
+            ) : (
+              <ul className="divide-y divide-white/10 max-h-[60vh] overflow-y-auto">
+                {needsReviewDesigns.map((d) => (
+                  <li key={d.id} className="p-4 hover:bg-white/5">
+                    <div className="flex gap-4 flex-wrap">
+                      <div className="flex gap-2 shrink-0">
+                        {d.referenceImageUrl && (
+                          <div>
+                            <p className="text-[10px] text-[var(--grey)] mb-1">Original</p>
+                            <a
+                              href={d.referenceImageUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block w-20 h-20 rounded border border-white/10 overflow-hidden"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={d.referenceImageUrl} alt="Original" className="w-full h-full object-cover" />
+                            </a>
+                          </div>
+                        )}
+                        {d.imageUrl && (
+                          <div>
+                            <p className="text-[10px] text-[var(--grey)] mb-1">Ross Refined</p>
+                            <a
+                              href={d.imageUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block w-20 h-20 rounded border border-white/10 overflow-hidden"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={d.imageUrl} alt="Ross refined" className="w-full h-full object-cover" />
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm text-[var(--white)]/90 truncate" title={d.prompt}>
+                          {d.prompt || "—"}
+                        </p>
+                        {d.rossReasoning && (
+                          <p className="text-xs text-amber-400/90 mt-2 italic">
+                            Ross&apos;s Technical Logic: {d.rossReasoning}
+                          </p>
+                        )}
+                        <div className="flex gap-2 mt-3">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const res = await fetch(`/api/designs/${d.id}`, {
+                                  method: "PATCH",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ status: "approved" }),
+                                });
+                                if (res.ok) router.refresh();
+                                else {
+                                  const data = await res.json().catch(() => ({}));
+                                  alert(data?.error ?? "Failed to approve");
+                                }
+                              } catch {
+                                alert("Failed to approve");
+                              }
+                            }}
+                            className="text-xs px-3 py-1.5 rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition"
+                          >
+                            ✓ Approve
+                          </button>
+                          <Link
+                            href={`/${studio.slug}?edit=${d.id}`}
+                            className="text-xs px-3 py-1.5 rounded bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition"
+                          >
+                            💬 Adjust
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
         {tab === "users" && (
-          <div className="rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] overflow-hidden">
+          <div className="premium-card overflow-hidden">
             <h2 className="px-4 py-3 text-sm font-semibold text-[var(--white)] border-b border-white/10">
               Users in this studio
             </h2>

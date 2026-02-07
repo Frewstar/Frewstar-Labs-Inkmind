@@ -11,6 +11,10 @@ import { getFirstTattooPhotos, getRandomTattooPhotos } from "@/lib/tattoo-photos
 import { promptToDownloadFilename } from "@/lib/download-filename";
 import { TATTOO_STYLES } from "@/lib/tattoo-styles";
 import { getRossAdvice, getRossImageReview, type RossImageReviewResponse } from "@/app/actions/ross";
+import InkThisUpButton from "./InkThisUpButton";
+import RossEvaluationPanel, { type RossEvaluation } from "./RossEvaluationPanel";
+import SubmitToStudioButton from "./SubmitToStudioButton";
+import { deleteMyDesign } from "@/app/actions/designs";
 import ModelSelector, { type ModelOption } from "./ModelSelector";
 import TattooDesignImage from "./TattooDesignImage";
 
@@ -22,18 +26,9 @@ export type DesignStudioProps = {
   studioId?: string | null;
 };
 
-// ─── Saved Design Library (localStorage) ─────────────────────────────────────
+// ─── Saved Design Library (Supabase API) ─────────────────────────────────────
 
-const SAVED_DESIGNS_KEY = "inkmind_saved_designs_v1";
 const LAST_GENERATION_KEY = "inkmind_last_generation_v1";
-const COLLECTIONS_KEY = "inkmind_collections_v1";
-
-const DEFAULT_GALLERIES: { id: string; name: string }[] = [
-  { id: "general", name: "General" },
-  { id: "arm", name: "Arm tattoos" },
-  { id: "back", name: "Back tattoos" },
-  { id: "viking", name: "Viking tattoos" },
-];
 
 export type Gallery = { id: string; name: string };
 
@@ -44,57 +39,9 @@ export type SavedDesign = {
   image: string;
   date: string;
   collectionId?: string | null;
+  studioId?: string | null;
+  status?: string;
 };
-
-function loadDesignLibrary(): SavedDesign[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(SAVED_DESIGNS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    const arr = Array.isArray(parsed) ? parsed : [];
-    return arr.map((item: SavedDesign) => ({
-      ...item,
-      collectionId: item.collectionId ?? null,
-    }));
-  } catch {
-    return [];
-  }
-}
-
-function saveDesignLibrary(items: SavedDesign[]) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(SAVED_DESIGNS_KEY, JSON.stringify(items));
-  } catch (e) {
-    // QuotaExceededError when images are large (e.g. base64); don't overwrite existing data
-    if (e instanceof DOMException && e.name === "QuotaExceededError") {
-      console.warn("[InkMind] Design library too large to save; use Download on favorites to keep them.");
-    }
-  }
-}
-
-function loadCollections(): Gallery[] {
-  if (typeof window === "undefined") return DEFAULT_GALLERIES;
-  try {
-    const raw = localStorage.getItem(COLLECTIONS_KEY);
-    if (!raw) return DEFAULT_GALLERIES;
-    const parsed = JSON.parse(raw);
-    const arr = Array.isArray(parsed) ? parsed : [];
-    return arr.length > 0 ? arr : DEFAULT_GALLERIES;
-  } catch {
-    return DEFAULT_GALLERIES;
-  }
-}
-
-function saveCollections(collections: Gallery[]) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(COLLECTIONS_KEY, JSON.stringify(collections));
-  } catch {
-    // ignore
-  }
-}
 
 type LastGeneration = { designs: string[]; prompt: string; style: string };
 
@@ -190,6 +137,17 @@ function HeartIcon({ filled }: { filled: boolean }) {
   );
 }
 
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}>
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <line x1="10" y1="11" x2="10" y2="17" />
+      <line x1="14" y1="11" x2="14" y2="17" />
+    </svg>
+  );
+}
+
 // ─── COMPONENT ───────────────────────────────────────────────────────────────
 
 export default function DesignStudio({ onOpenBooking: externalOpenBooking, studioSlug, studioId }: DesignStudioProps = {}) {
@@ -210,7 +168,7 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
   const [designLibrary, setDesignLibrary] = useState<SavedDesign[]>([]);
   const [collections, setCollections] = useState<Gallery[]>([]);
-  const [selectedCollectionId, setSelectedCollectionId] = useState<string>("general");
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [filterCollectionId, setFilterCollectionId] = useState<string | null>(null);
   const [lastGenerationPrompt, setLastGenerationPrompt] = useState("");
   const [lastGenerationStyle, setLastGenerationStyle] = useState(selectedStyle);
@@ -240,12 +198,17 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
   const [rossReviewError, setRossReviewError] = useState<string | null>(null);
   /** Index of the design that was reviewed (so Apply Fixes uses that image as ref). */
   const [rossReviewedImageIndex, setRossReviewedImageIndex] = useState<number | null>(null);
+  /** Ross Vision evaluation (reasoning, style, needle) — shown after "Ink This Up" processes an image. */
+  const [rossEvaluation, setRossEvaluation] = useState<RossEvaluation | null>(null);
+  /** Last design saved from current session — used for "Send to Artist" in RossEvaluationPanel. */
+  const [lastSavedDesignId, setLastSavedDesignId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** Files for upload (parallel to referenceUrls; first used when posting to /api/generate). */
   const refFilesRef = useRef<File[]>([]);
   const promptSectionRef = useRef<HTMLDivElement>(null);
   const tweakLoadedRef = useRef<string | null>(null);
   const parentIdLoadedRef = useRef<string | null>(null);
+  const editLoadedRef = useRef<string | null>(null);
   const hasRestoredLibraryRef = useRef(false);
 
   const useExternalBooking = !!externalOpenBooking;
@@ -258,18 +221,57 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
   const filteredDesignLibrary = useMemo(() => {
     if (filterCollectionId == null) return designLibrary;
     return designLibrary.filter(
-      (d) => d.collectionId === filterCollectionId || (d.collectionId == null && filterCollectionId === "general")
+      (d) => d.collectionId === filterCollectionId
     );
   }, [designLibrary, filterCollectionId]);
 
-  // Persist design library when it changes — skip until after restore so we don't overwrite with [] on load or in Strict Mode
-  useEffect(() => {
-    if (!hasRestoredLibraryRef.current) return;
-    saveDesignLibrary(designLibrary);
-  }, [designLibrary]);
-  useEffect(() => {
-    if (collections.length > 0) saveCollections(collections);
-  }, [collections]);
+  // Fetch collections and saved designs from API (when authenticated)
+  const fetchCollections = useCallback(async () => {
+    try {
+      const res = await fetch("/api/collections");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data.collections) && data.collections.length > 0) {
+        setCollections(data.collections);
+        setSelectedCollectionId((prev) => prev || data.collections[0].id);
+      } else {
+        const createRes = await fetch("/api/collections", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "General" }),
+        });
+        if (createRes.ok) {
+          const { collection } = await createRes.json();
+          setCollections([collection]);
+          setSelectedCollectionId(collection.id);
+        }
+      }
+    } catch {
+      // unauthenticated or network error
+    }
+  }, []);
+
+  const fetchDesignLibrary = useCallback(async () => {
+    try {
+      const res = await fetch("/api/designs");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!Array.isArray(data.designs)) return;
+      const mapped: SavedDesign[] = data.designs.map((d: { id: string; prompt: string | null; imageUrl: string; createdAt: string; collectionId?: string | null; studioId?: string | null; status?: string }) => ({
+        id: d.id,
+        prompt: d.prompt ?? "",
+        style: "",
+        image: d.imageUrl ?? "",
+        date: d.createdAt ?? new Date().toISOString(),
+        collectionId: d.collectionId ?? null,
+        studioId: d.studioId ?? null,
+        status: d.status ?? "pending",
+      }));
+      setDesignLibrary(mapped);
+    } catch {
+      // unauthenticated or network error
+    }
+  }, []);
 
   // Status stepper: cycle through loading statuses every 7 seconds
   useEffect(() => {
@@ -283,10 +285,9 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
     return () => clearInterval(interval);
   }, [loading]);
 
-  // After mount: restore design library, last generation; show skeleton briefly. Reset ref on unmount so Strict Mode doesn't wipe localStorage.
+  // After mount: restore last generation; fetch collections and design library from API; show skeleton briefly.
   const SKELETON_MIN_MS = 500;
   useEffect(() => {
-    setDesignLibrary(loadDesignLibrary());
     hasRestoredLibraryRef.current = true;
     const last = loadLastGeneration();
     if (last?.designs?.length) {
@@ -300,6 +301,13 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
       hasRestoredLibraryRef.current = false;
     };
   }, []);
+
+  // When mounted, fetch collections and saved designs from Supabase (if authenticated)
+  useEffect(() => {
+    if (!hasMounted) return;
+    fetchCollections();
+    fetchDesignLibrary();
+  }, [hasMounted, fetchCollections, fetchDesignLibrary]);
 
   // Refresh placeholder images every 60 seconds when showing placeholders (client-only)
   useEffect(() => {
@@ -449,32 +457,60 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
     document.body.removeChild(link);
   };
 
-  // Save a design to the library (image + prompt) into the currently selected gallery
-  const handleSaveToLibrary = useCallback((index: number) => {
+  // Save a design to the library via Supabase (POST /api/designs)
+  const handleSaveToLibrary = useCallback(async (index: number) => {
     const dataUrl = designs[index];
     if (!dataUrl) return;
     const prompt = lastGenerationPrompt || manualPrompt || "Custom design";
     const style = lastGenerationStyle || selectedStyle;
-    const entry: SavedDesign = {
-      id: `saved-${Date.now()}-${index}`,
-      prompt,
-      style,
-      image: dataUrl,
-      date: new Date().toISOString(),
-      collectionId: selectedCollectionId || null,
-    };
-    setDesignLibrary(prev => [entry, ...prev]);
-    setSavedInSession(prev => new Set(prev).add(index));
-  }, [designs, lastGenerationPrompt, lastGenerationStyle, manualPrompt, selectedStyle, selectedCollectionId]);
+    try {
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      const filename = `design-${Date.now()}.png`;
+      const formData = new FormData();
+      formData.append("file", blob, filename);
+      formData.append("prompt", prompt);
+      formData.append("style", style);
+      formData.append("is_starred", "true");
+      if (selectedCollectionId) formData.append("collection_id", selectedCollectionId);
+      const res = await fetch("/api/designs", { method: "POST", body: formData });
+      if (res.ok) {
+        const json = await res.json().catch(() => ({}));
+        const newId = json?.design?.id;
+        if (newId) setLastSavedDesignId(newId);
+        setSavedInSession((prev) => new Set(prev).add(index));
+        await fetchDesignLibrary();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err?.error ?? "Failed to save design. Sign in to save to your collection.");
+      }
+    } catch {
+      alert("Failed to save design. Sign in to save to your collection.");
+    }
+  }, [designs, lastGenerationPrompt, lastGenerationStyle, manualPrompt, selectedStyle, selectedCollectionId, fetchDesignLibrary]);
 
-  // Add a new gallery (collection)
-  const handleAddGallery = useCallback(() => {
+  // Add a new collection via API
+  const handleAddGallery = useCallback(async () => {
     const name = newGalleryName.trim();
     if (!name) return;
-    const id = `col-${Date.now()}`;
-    setCollections(prev => [...prev, { id, name }]);
-    setSelectedCollectionId(id);
-    setNewGalleryName("");
+    try {
+      const res = await fetch("/api/collections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (res.ok) {
+        const { collection } = await res.json();
+        setCollections((prev) => [...prev, collection]);
+        setSelectedCollectionId(collection.id);
+        setNewGalleryName("");
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err?.error ?? "Failed to create collection.");
+      }
+    } catch {
+      alert("Failed to create collection.");
+    }
   }, [newGalleryName]);
 
   // Load a saved design into the editor (manual mode + prompt + style)
@@ -500,12 +536,30 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
     document.body.removeChild(link);
   }, []);
 
-  // Move a saved design to another gallery
-  const handleMoveToGallery = useCallback((savedId: string, newCollectionId: string) => {
-    setDesignLibrary(prev =>
-      prev.map((d) => (d.id === savedId ? { ...d, collectionId: newCollectionId || null } : d))
-    );
-  }, []);
+  // Move a saved design to another collection via API
+  const handleMoveToGallery = useCallback(async (savedId: string, newCollectionId: string) => {
+    try {
+      const res = await fetch(`/api/designs/${savedId}/favorite`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ collection_id: newCollectionId || null }),
+      });
+      if (res.ok) await fetchDesignLibrary();
+    } catch {
+      // ignore
+    }
+  }, [fetchDesignLibrary]);
+
+  // Delete a saved design from the library (Supabase)
+  const handleDeleteSaved = useCallback(async (savedId: string) => {
+    if (!confirm("Remove this design from your saved gallery? You can still re-save it from the generator if needed.")) return;
+    const result = await deleteMyDesign(savedId);
+    if (result.error) {
+      alert(result.error);
+      return;
+    }
+    await fetchDesignLibrary();
+  }, [fetchDesignLibrary]);
 
   const MAX_REF_IMAGES = 4;
 
@@ -535,6 +589,7 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
     setReferenceUrls((prev) => prev.filter((_, i) => i !== index));
     refFilesRef.current = refFilesRef.current.filter((_, i) => i !== index);
     if (index === 0) setBranchFromDesignId(null);
+    setRossEvaluation(null);
   };
 
   // Wizard completion handler. referenceImageOverride: when set (e.g. from Apply Fixes), use this as the ref image.
@@ -616,6 +671,7 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
       setBranchFromDesignId(null);
       setRossReviewFixes(null);
       setRossReviewedImageIndex(null);
+      setRossEvaluation(null);
       saveLastGeneration(newDesigns, finalPrompt, selectedStyle);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
@@ -626,7 +682,7 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
   };
 
   return (
-    <div className="studio-layout">
+    <div className="studio-layout animate-spring-in">
       {/* ── LEFT: Wizard Panel ── */}
       <div className="prompt-panel">
         <label style={{ marginBottom: 16 }}>Pick a Style</label>
@@ -870,64 +926,83 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
                   </label>
                   <textarea
                     id="manual-prompt"
-                    className="manual-textarea"
+                    className="input-premium textarea-premium manual-textarea"
                     value={manualPrompt}
                     onChange={(e) => setManualPrompt(e.target.value)}
                     placeholder="e.g. A fine-line blackwork raven with geometric patterns, bold and minimal, for forearm placement"
                     disabled={loading}
                   />
-                  {/* Studio Assistant: style suggestion chips */}
-                  <div className="mt-4 rounded-[var(--radius-lg)] bg-gradient-to-br from-[var(--bg-card)] to-[#0a0a0a] border border-[var(--gold)]/20 p-5 relative overflow-hidden">
-                    {/* Ambient glow effect */}
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-[var(--gold)] opacity-[0.03] rounded-full blur-3xl pointer-events-none" />
-                    <div className="absolute bottom-0 left-0 w-24 h-24 bg-[var(--gold)] opacity-[0.02] rounded-full blur-2xl pointer-events-none" />
+                  {/* Studio Assistant: Premium App Edition */}
+                  <div className="mt-6 rounded-2xl bg-gradient-to-br from-[#1a1a1a] via-[#141414] to-black border border-[var(--gold)]/15 p-6 relative overflow-hidden backdrop-blur-xl shadow-2xl">
+                    {/* Animated ambient glow */}
+                    <div className="absolute top-0 right-0 w-40 h-40 bg-[var(--gold)] opacity-[0.04] rounded-full blur-3xl animate-pulse-slow pointer-events-none" />
+                    <div className="absolute bottom-0 left-0 w-32 h-32 bg-[var(--gold)] opacity-[0.03] rounded-full blur-2xl animate-pulse-slow pointer-events-none" style={{ animationDelay: "1s" }} />
 
                     <div className="relative">
-                      {/* Header */}
-                      <div className="flex items-center gap-2.5 mb-4">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                          <path d="M9 2v6l-3 1" />
-                          <path d="M15 2v6l3 1" />
-                          <path d="M12 8v13" />
-                          <path d="M9 21h6" />
-                        </svg>
-                        <span className="text-sm font-semibold text-[var(--gold)] font-[var(--font-head)] tracking-wide">
-                          Studio Assistant
-                        </span>
+                      {/* Header with refined spacing */}
+                      <div className="flex items-center gap-3 mb-5">
+                        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[var(--gold)]/20 to-[var(--gold)]/5 flex items-center justify-center backdrop-blur-sm border border-[var(--gold)]/20">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                            <path d="M9 2v6l-3 1" />
+                            <path d="M15 2v6l3 1" />
+                            <path d="M12 8v13" />
+                            <path d="M9 21h6" />
+                          </svg>
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-sm font-semibold text-[var(--gold)] font-[var(--font-head)] tracking-wide leading-none">
+                            Studio Assistant
+                          </h3>
+                          <p className="text-[10px] text-[var(--grey)]/70 mt-1 leading-none tracking-wide">
+                            AI-POWERED ENHANCEMENTS
+                          </p>
+                        </div>
                         {rossLoading && (
-                          <span className="text-xs text-[var(--grey)] ml-auto animate-pulse flex items-center gap-1.5">
-                            <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                            </svg>
-                            Analyzing…
-                          </span>
+                          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--gold)]/5 border border-[var(--gold)]/20">
+                            <div className="w-1.5 h-1.5 rounded-full bg-[var(--gold)] animate-pulse" />
+                            <span className="text-[10px] font-medium text-[var(--gold)]/90 uppercase tracking-wider">
+                              Analyzing
+                            </span>
+                          </div>
                         )}
                         {rossError && (
-                          <span className="text-xs text-red-400/90 ml-auto">{rossError}</span>
+                          <span className="text-[10px] text-red-400/90 font-medium">{rossError}</span>
                         )}
                       </div>
 
-                      {/* Suggestion chips */}
+                      {/* Suggestion chips - iOS-style */}
                       {rossSuggestions.length > 0 && (
-                        <div className="space-y-2.5">
-                          <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--grey)] opacity-80">
-                            Style Enhancers
-                          </p>
-                          <div className="flex flex-wrap gap-2">
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2">
+                            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-[var(--gold)]/20 to-transparent" />
+                            <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-[var(--grey)]/60">
+                              Style Enhancers
+                            </span>
+                            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-[var(--gold)]/20 to-transparent" />
+                          </div>
+                          <div className="flex flex-wrap gap-2.5">
                             {rossSuggestions.map((s, i) => (
                               <button
                                 key={i}
                                 type="button"
-                                className="studio-assistant-suggestion group relative px-4 py-2.5 rounded-lg text-[13px] font-medium border border-[var(--gold)]/15 bg-black/40 text-[var(--white)]/90 hover:bg-[var(--gold)]/10 hover:border-[var(--gold)]/40 hover:text-[var(--gold)] hover:shadow-[0_0_20px_rgba(232,180,90,0.15)] transition-all duration-300 backdrop-blur-sm"
-                                style={{ animationDelay: `${i * 50}ms` }}
+                                className="premium-suggestion group relative px-4 py-3 rounded-xl text-[13px] font-medium border border-[var(--gold)]/20 bg-gradient-to-b from-[#1a1a1a] to-black text-[var(--white)]/90 hover:border-[var(--gold)]/50 hover:shadow-[0_0_30px_rgba(232,180,90,0.15)] transition-all duration-500 backdrop-blur-sm active:scale-95"
+                                style={{
+                                  animationDelay: `${i * 60}ms`,
+                                  transform: "translateZ(0)",
+                                }}
                                 onClick={() => {
                                   const sep = manualPrompt.trim().endsWith(",") || !manualPrompt.trim() ? "" : ", ";
                                   setManualPrompt((prev) => prev.trim() + sep + s);
                                 }}
                               >
-                                <span className="relative z-10">{s}</span>
-                                <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-[var(--gold)]/0 via-[var(--gold)]/5 to-[var(--gold)]/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                                <span className="relative z-10 flex items-center gap-2">
+                                  <span className="w-1 h-1 rounded-full bg-[var(--gold)]/60 group-hover:bg-[var(--gold)] transition-colors" />
+                                  {s}
+                                </span>
+                                {/* Hover gradient overlay */}
+                                <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-[var(--gold)]/0 via-[var(--gold)]/0 to-[var(--gold)]/10 opacity-0 group-hover:opacity-100 transition-all duration-500" />
+                                {/* Subtle inner glow */}
+                                <div className="absolute inset-0 rounded-xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] pointer-events-none" />
                               </button>
                             ))}
                           </div>
@@ -936,35 +1011,60 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
                     </div>
                   </div>
 
-                  {/* Ross Longevity Alert: placement risk warning */}
-                  {rossLongevityAlert && (
-                    <div className="mt-3 rounded-[var(--radius-lg)] border border-amber-500/30 bg-gradient-to-br from-amber-500/5 to-amber-600/10 p-4 backdrop-blur-sm relative overflow-hidden">
-                      {/* Subtle warning glow */}
-                      <div className="absolute -top-10 -right-10 w-24 h-24 bg-amber-500 opacity-[0.08] rounded-full blur-2xl pointer-events-none" />
+                  {/* Ross Evaluation Panel — Tech Specs after Vision processing */}
+                  <RossEvaluationPanel
+                    evaluation={rossEvaluation}
+                    designId={lastSavedDesignId ?? undefined}
+                    studioId={
+                      lastSavedDesignId
+                        ? designLibrary.find((d) => d.id === lastSavedDesignId)?.studioId ?? studioId ?? undefined
+                        : studioId ?? undefined
+                    }
+                    onSubmitted={() => {
+                      setLastSavedDesignId(null);
+                      fetchDesignLibrary();
+                    }}
+                  />
 
-                      <div className="relative flex gap-3">
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="w-5 h-5 text-amber-400 shrink-0 mt-0.5"
-                        >
-                          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                          <line x1="12" y1="9" x2="12" y2="13" />
-                          <line x1="12" y1="17" x2="12.01" y2="17" />
-                        </svg>
-                        <div>
-                          <p className="text-xs font-semibold text-amber-300 uppercase tracking-wider mb-1">
-                            Longevity Consideration
-                          </p>
-                          <p className="text-sm text-amber-100/90 leading-relaxed">
+                  {/* Ross Longevity Alert: Premium Edition */}
+                  {rossLongevityAlert && (
+                    <div className="mt-4 rounded-2xl border border-amber-400/20 bg-gradient-to-br from-amber-500/[0.07] to-amber-600/[0.12] p-5 backdrop-blur-xl relative overflow-hidden shadow-lg">
+                      {/* Animated warning pulse */}
+                      <div className="absolute -top-12 -right-12 w-32 h-32 bg-amber-400 opacity-[0.06] rounded-full blur-3xl animate-pulse pointer-events-none" />
+
+                      <div className="relative flex gap-4">
+                        <div className="shrink-0">
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400/20 to-amber-500/10 flex items-center justify-center border border-amber-400/30 backdrop-blur-sm">
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="w-5 h-5 text-amber-400"
+                            >
+                              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                              <line x1="12" y1="9" x2="12" y2="13" />
+                              <line x1="12" y1="17" x2="12.01" y2="17" />
+                            </svg>
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h4 className="text-[10px] font-bold text-amber-300 uppercase tracking-[0.12em]">
+                              Longevity Alert
+                            </h4>
+                            <div className="h-px flex-1 bg-gradient-to-r from-amber-400/30 to-transparent" />
+                          </div>
+                          <p className="text-[13px] text-amber-100/95 leading-relaxed font-medium">
                             {rossLongevityAlert}
                           </p>
                         </div>
                       </div>
+
+                      {/* Subtle inner border glow */}
+                      <div className="absolute inset-0 rounded-2xl shadow-[inset_0_1px_1px_rgba(251,191,36,0.1)] pointer-events-none" />
                     </div>
                   )}
                 </div>
@@ -989,15 +1089,23 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
                     <option key={p} value={p}>{p}</option>
                   ))}
                 </select>
-                <button
-                  type="button"
-                  onClick={() => handleWizardComplete(manualPrompt.trim(), manualPlacement)}
-                  disabled={loading || !manualPrompt.trim() || !disclaimerAccepted}
-                  className="wizard-btn-next"
-                  style={{ marginLeft: "auto" }}
-                >
-                  Generate
-                </button>
+                <div style={{ display: "flex", gap: 12, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
+                  <InkThisUpButton
+                    currentPrompt={manualPrompt}
+                    onRossRefine={(refined) => setManualPrompt(refined)}
+                    referenceImageUrl={referenceUrls[0] ?? undefined}
+                    studioId={studioId ?? undefined}
+                    disabled={loading || !disclaimerAccepted}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleWizardComplete(manualPrompt.trim(), manualPlacement)}
+                    disabled={loading || !manualPrompt.trim() || !disclaimerAccepted}
+                    className="wizard-btn-next"
+                  >
+                    Generate
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
@@ -1038,8 +1146,8 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
             <div className="save-to-gallery-label">
               <span className="saved-hint">Hearted designs save to:</span>
               <select
-                value={selectedCollectionId}
-                onChange={(e) => setSelectedCollectionId(e.target.value)}
+                value={selectedCollectionId ?? ""}
+                onChange={(e) => setSelectedCollectionId(e.target.value || null)}
                 className="gallery-select"
                 aria-label="Choose gallery to save designs to"
               >
@@ -1345,6 +1453,16 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
                       >
                         <RefIcon />
                       </button>
+                      {saved.studioId && saved.status !== "pending_review" && (
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <SubmitToStudioButton
+                            designId={saved.id}
+                            studioId={saved.studioId}
+                            onSuccess={fetchDesignLibrary}
+                            compact
+                          />
+                        </div>
+                      )}
                       <button
                         type="button"
                         className="overlay-btn-main"
@@ -1356,12 +1474,24 @@ export default function DesignStudio({ onOpenBooking: externalOpenBooking, studi
                       >
                         Load into Editor
                       </button>
+                      <button
+                        type="button"
+                        className="history-delete-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteSaved(saved.id);
+                        }}
+                        title="Remove from saved gallery"
+                        aria-label="Delete"
+                      >
+                        <TrashIcon />
+                      </button>
                     </div>
                     <div className="history-move-row">
                       <label htmlFor={`move-${saved.id}`} className="history-move-label">Move to:</label>
                       <select
                         id={`move-${saved.id}`}
-                        value={saved.collectionId ?? "general"}
+                        value={saved.collectionId ?? collections[0]?.id ?? ""}
                         onChange={(e) => {
                           e.stopPropagation();
                           handleMoveToGallery(saved.id, e.target.value);

@@ -6,7 +6,14 @@ import InstagramPortfolio from "@/components/InstagramPortfolio";
 import BookingModal from "@/components/BookingModal";
 import { LOGO_PATH, LOGO_ALT } from "@/lib/branding";
 
-export default function HomeContent({ designGallerySlot }: { designGallerySlot?: React.ReactNode }) {
+type HomeContentProps = {
+  designGallerySlot?: React.ReactNode;
+  signedInAs?: string | null;
+  signedInUserId?: string | null;
+  authNav?: React.ReactNode;
+};
+
+export default function HomeContent({ designGallerySlot, signedInAs, signedInUserId, authNav }: HomeContentProps) {
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
 
   return (
@@ -22,6 +29,15 @@ export default function HomeContent({ designGallerySlot }: { designGallerySlot?:
           <a href="#portfolio">Portfolio</a>
           <a href="#why">Why Frewstar Labs</a>
           <a href="#book">Book</a>
+          {signedInAs && (
+            <span
+              className="nav-signed-in"
+              title={signedInUserId ? `User ID (profile_id): ${signedInUserId}` : "Signed in"}
+            >
+              {signedInAs.includes("@") ? signedInAs : `Signed in (${signedInAs.slice(0, 8)}…)`}
+            </span>
+          )}
+          {authNav && <span className="nav-auth-wrap">{authNav}</span>}
         </div>
       </nav>
 
@@ -101,9 +117,15 @@ export default function HomeContent({ designGallerySlot }: { designGallerySlot?:
       </section>
 
       {/* ─── MY DESIGNS (saved in DB, per user) — rendered as Server Component slot ─── */}
-      <section id="my-designs" className="studio">
+      <section id="my-designs" className="studio my-designs-section">
         <div className="section-inner">
-          {designGallerySlot}
+          <p className="section-label">My Designs</p>
+          <h2 className="section-title">
+            Your collection
+          </h2>
+          <div className="design-gallery-slot">
+            {designGallerySlot}
+          </div>
         </div>
       </section>
 

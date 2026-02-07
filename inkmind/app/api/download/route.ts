@@ -1,20 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import sharp from "sharp";
 import { createClient } from "@/utils/supabase/server";
+import { parseSupabaseStorageUrl } from "@/lib/supabase-storage";
 
 /**
  * GET /api/download
  *
- * Fetches the image from the given Supabase (or any) URL and tells the browser
- * to save it to disk instead of displaying it.
+ * For design id: downloads from Supabase storage via client (avoids public URL 400).
+ * For url param: fetches the given URL (e.g. external or data URL).
+ * Returns image/png with Content-Disposition: attachment (watermarked).
  *
  * Query params:
- * - url: image URL (encoded) — fetch image from this URL
- * - id: design ID — look up image_url from DB (alternative to url)
+ * - url: image URL (encoded) — fetch from this URL
+ * - id: design ID — look up image_url, then download from storage by bucket/path
  * - filename: optional; defaults to "tattoo-design.png"
- *
- * Response: image/png with Content-Disposition: attachment so the browser
- * triggers a download. Image is watermarked before return.
  */
 const WATERMARK_PADDING = 16;
 const WATERMARK_FONT_SIZE = 14;
@@ -78,24 +77,53 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Prefer Supabase storage download (avoids 400 when fetching public URL from server)
+  const parsed = parseSupabaseStorageUrl(imageUrl);
+  const pathOnlyMatch = !parsed && !/^https?:\/\//i.test(imageUrl) && imageUrl.match(/^([^/]+)\/(.+)$/);
+  const bucket = parsed?.bucket ?? pathOnlyMatch?.[1] ?? null;
+  const path = parsed?.path ?? pathOnlyMatch?.[2] ?? null;
+
   let arrayBuffer: ArrayBuffer;
-  try {
+
+  const fetchFromUrl = async (): Promise<ArrayBuffer> => {
     const res = await fetch(imageUrl, {
       headers: { "User-Agent": "InkMind-Download/1.0" },
     });
-    if (!res.ok) {
+    if (!res.ok) throw new Error(`fetch ${res.status}`);
+    return res.arrayBuffer();
+  };
+
+  if (bucket && path) {
+    const supabase = await createClient();
+    const { data, error } = await supabase.storage.from(bucket).download(path);
+    if (!error && data) {
+      arrayBuffer = await data.arrayBuffer();
+    } else {
+      const storageErr = error?.message ?? "no data";
+      console.warn("[download] storage.download failed, falling back to fetch:", storageErr, { bucket, path });
+      try {
+        arrayBuffer = await fetchFromUrl();
+      } catch (err) {
+        console.error("[download] fetch fallback error:", err);
+        const msg = process.env.NODE_ENV === "development"
+          ? `Storage: ${storageErr}. Fetch failed: ${err instanceof Error ? err.message : String(err)}`
+          : "Failed to get image from storage";
+        return NextResponse.json(
+          { error: msg },
+          { status: 502 }
+        );
+      }
+    }
+  } else {
+    try {
+      arrayBuffer = await fetchFromUrl();
+    } catch (err) {
+      console.error("[download] fetch error:", err);
       return NextResponse.json(
-        { error: `Failed to fetch image: ${res.status}` },
+        { error: "Failed to fetch image" },
         { status: 502 }
       );
     }
-    arrayBuffer = await res.arrayBuffer();
-  } catch (err) {
-    console.error("[download] fetch error:", err);
-    return NextResponse.json(
-      { error: "Failed to fetch image" },
-      { status: 502 }
-    );
   }
 
   const buffer = Buffer.from(arrayBuffer);

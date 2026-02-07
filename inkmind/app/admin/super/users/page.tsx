@@ -9,26 +9,32 @@ export const metadata = {
 
 export default async function SuperUsersPage() {
   const supabase = await createClient();
-  
-  // Fetch all profiles with their studio info
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select(`
-      id,
-      role,
-      is_admin,
-      studio_id,
-      studios:studio_id (
-        name,
-        slug
-      )
-    `)
-    .order("role", { ascending: false });
 
-  const users = (profiles ?? []).map((p) => ({
+  const [profilesRes, studiosRes] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select(`
+        id,
+        role,
+        is_admin,
+        studio_id,
+        studios:studio_id (
+          name,
+          slug
+        )
+      `)
+      .order("role", { ascending: false }),
+    supabase.from("studios").select("id, name, slug").order("name", { ascending: true }),
+  ]);
+
+  const profiles = profilesRes.data ?? [];
+  const studios = (studiosRes.data ?? []).map((s) => ({ id: s.id, name: s.name, slug: s.slug }));
+
+  const users = profiles.map((p: { id: string; role: string | null; is_admin: boolean; studio_id: string | null; studios?: { name: string; slug: string } | null }) => ({
     id: p.id,
     email: "—", // Email not accessible from profiles table
     role: p.role ?? (p.is_admin ? "SUPER_ADMIN" : "USER"),
+    studioId: p.studio_id ?? null,
     studioName: p.studios?.name ?? null,
     studioSlug: p.studios?.slug ?? null,
   }));
@@ -145,7 +151,12 @@ export default async function SuperUsersPage() {
                       )}
                     </td>
                     <td className="py-4 px-5">
-                      <UserRoleManager userId={u.id} currentRole={u.role} />
+                      <UserRoleManager
+                        userId={u.id}
+                        currentRole={u.role}
+                        currentStudioId={u.studioId}
+                        studios={studios}
+                      />
                     </td>
                   </tr>
                 ))}

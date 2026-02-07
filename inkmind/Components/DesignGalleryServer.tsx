@@ -27,6 +27,7 @@ export default async function DesignGalleryServer() {
       reference_image_url,
       status,
       is_starred,
+      collection_id,
       created_at
     `)
     .eq('profile_id', authUser.id)
@@ -44,17 +45,50 @@ export default async function DesignGalleryServer() {
   }
 
   // 4. Map the data to the format expected by your Client Component
-  // Use getPublicUrl so images work with both Supabase Cloud and Local
-  const designs = (rows || []).map((d) => ({
+  // Use same-origin image proxy so gallery images load reliably (no blank/cors)
+  const designs = (rows || []).map((d) => {
+    const hasImage = !!(d.image_url?.trim());
+    const imageUrl = hasImage ? `/api/designs/${d.id}/image` : "";
+    let referenceImageUrl: string | null = null;
+    try {
+      referenceImageUrl = resolveStorageUrl(supabase, d.reference_image_url) ?? d.reference_image_url?.trim() ?? null;
+    } catch {
+      referenceImageUrl = d.reference_image_url?.trim() ?? null;
+    }
+    return {
     id: d.id,
     prompt: d.prompt ?? "",
-    imageUrl: resolveStorageUrl(supabase, d.image_url) ?? "",
-    referenceImageUrl: resolveStorageUrl(supabase, d.reference_image_url) ?? null,
+    imageUrl,
+    referenceImageUrl,
     status: d.status,
     isStarred: d.is_starred ?? false,
+    collectionId: d.collection_id ?? null,
     createdAt: new Date(d.created_at).toISOString(),
     isPaid: false, // Defaulting for demo
-  }));
+  };
+  });
 
-  return <DesignGalleryClient designs={designs} />;
+  const { data: collectionsRows } = await supabase
+    .from("collections")
+    .select("id, name")
+    .eq("profile_id", authUser.id)
+    .order("name");
+
+  let collections = (collectionsRows ?? []).map((c) => ({ id: c.id, name: c.name }));
+
+  if (collections.length === 0) {
+    await supabase
+      .from("collections")
+      .insert({ profile_id: authUser.id, name: "General" })
+      .select("id, name")
+      .single();
+    const { data: refetch } = await supabase
+      .from("collections")
+      .select("id, name")
+      .eq("profile_id", authUser.id)
+      .order("name");
+    collections = (refetch ?? []).map((c) => ({ id: c.id, name: c.name }));
+  }
+
+  return <DesignGalleryClient designs={designs} collections={collections} />;
 }

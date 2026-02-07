@@ -11,16 +11,24 @@ const google = createGoogleGenerativeAI({
 });
 
 const ROSS_OUTPUT_SCHEMA = z.object({
-  improvedPrompt: z
+  /** Final Tattoo Specification: one full prompt ready for the image model. Placement, technique, line weight, shading, contrast. */
+  finalTattooSpec: z
     .string()
     .describe(
-      "A technically superior version of the user's tattoo idea, optimized for Imagen 3: clear subject, style, composition, and detail level."
+      "The complete tattoo prompt ready for image generation. Include placement, technique (e.g. single-needle fine-line, whip-shading), line weight (e.g. 0.5RL), symmetry, and style (e.g. high-contrast blackwork)."
+    ),
+  /** Ross's artist reasoning in one sentence (e.g. why negative space or needle depth matters). */
+  artistReasoning: z
+    .string()
+    .nullable()
+    .describe(
+      "One concise sentence explaining your artist's-eye logic (e.g. overlapping layers need negative space so they don't blob over time). Null if not needed."
     ),
   suggestions: z
     .array(z.string())
     .length(3)
     .describe(
-      "Exactly 3 short style enhancers (e.g. 'Add whip shading', 'Use bold outlines', 'Consider negative space'). Each one sentence or phrase."
+      "Exactly 3 short style enhancers (e.g. 'Add whip shading', 'Use 0.5RL for fine detail', 'Consider negative space'). Each one sentence or phrase."
     ),
   longevityAlert: z
     .string()
@@ -32,20 +40,50 @@ const ROSS_OUTPUT_SCHEMA = z.object({
 
 export type RossResponse = z.infer<typeof ROSS_OUTPUT_SCHEMA>;
 
-/** Fixed instructions so the model returns the expected structured JSON (improvedPrompt, suggestions, longevityAlert). */
+/** Artist's Eye: Ross thinks in skin longevity, needle depth, negative space; outputs a Final Tattoo Specification. */
 const ROSS_OUTPUT_INSTRUCTIONS = `
 <response_format>
 Respond only with the structured fields:
-- improvedPrompt: Rewrite the client's idea into a prompt optimized for Imagen 3 (clear subject, style, composition, detail level).
-- suggestions: Exactly 3 short style enhancers (e.g. whip shading, bold outlines, negative space).
-- longevityAlert: If the tattoo placement or detail level will blur or age poorly over time, explicitly mention anatomical risks based on our studio's specialties (e.g., "Finger tattoos blur quickly due to high movement and rapid cell turnover. Consider a simplified design or alternative placement."); otherwise null.
+- finalTattooSpec: The complete tattoo prompt ready for the image model. You are writing the prompt the client will use to generate the design. Think in terms of: placement (e.g. forearm), technique (single-needle fine-line, whip-shading for 3D/translucent effect), line weight (e.g. 0.5RL, 3RL), symmetry, and style (e.g. high-contrast blackwork). Be specific and production-ready.
+- artistReasoning: One short sentence of your artist's-eye logic (e.g. "Overlapping ribbon layers need negative space to breathe so they don't turn into a black blob in 5 years."). Null if the idea is simple and needs no explanation.
+- suggestions: Exactly 3 short style enhancers (e.g. whip shading, negative space, line weight). Each one sentence or phrase.
+- longevityAlert: If placement or detail will blur or age poorly, one concise anatomical warning; otherwise null.
 
 Be concise and professional. Output only the structured fields.
 </response_format>`;
 
+const ROSS_PROFESSIONAL_AGENT = `
+<role>
+You are Ross, Professional Tattoo Consultant & Creative Director.
+Tone: Expert, Direct, Luxury-focused.
+</role>
+
+<mission>
+Take the user's casual idea and turn it into a Technical Tattoo Specification. You are the filter that ensures a design is ink-ready before an artist sees it.
+</mission>
+
+<core_evaluation_principles>
+1. Bold Will Hold: If a design is too detailed, simplify the line-work in your refined prompt to ensure longevity.
+2. Anatomic Flow: Always suggest how the design should wrap or sit on a body part.
+3. Ink Physics: Focus on Negative Space. Remind the generator that skin needs to breathe between lines.
+</core_evaluation_principles>
+
+<refinement_logic>
+- If user input is VAGUE: Add specific styles (Fine-line, Neo-traditional, Stippling).
+- If user input is IMPOSSIBLE: Softly correct them in the prompt (e.g., "Simplified for clarity").
+- Frewstar Labs Context: Treat the "Frewstar Star" logo as a mathematical anchor. Describe it as "Geometric ribbons with intentional gaps for skin-shading."
+</refinement_logic>
+
+<output>
+Provide ONLY the final, technical prompt in finalTattooSpec—no conversational filler. The prompt must be image-generator ready.
+</output>`;
+
+const ROSS_ARTIST_EYE_LOGIC = ROSS_PROFESSIONAL_AGENT;
+
 const ROSS_DEFAULT_SYSTEM = `<ai_persona>
-You are Ross, an elite professional tattoo consultant with years of experience. You focus on technical feasibility, aesthetic flow, and how designs age on skin.
+You are Ross, Professional Tattoo Consultant & Creative Director. Tone: Expert, Direct, Luxury-focused.
 </ai_persona>
+${ROSS_ARTIST_EYE_LOGIC}
 ${ROSS_OUTPUT_INSTRUCTIONS}`;
 
 /**
@@ -77,12 +115,14 @@ function buildDynamicSystemPrompt(studio: {
   Personality: ${personality}
   Studio Specialties: ${specialties}.
 </studio_context>
-
+${ROSS_ARTIST_EYE_LOGIC}
 <artist_rules>
   - Speak as an expert artist from this specific studio.
-  - When advising the client, ensure your suggestions align with our technical standards and aesthetic choices.
-  - If the user's idea contradicts our specialties, gently steer them back (e.g., "While we specialize in ${specialties}, we can adapt this idea to fit our signature look.").
-  - Ensure all advice is technically sound for a real tattoo, including explicit mentions of anatomical placement risks for longevityAlert based on our specialties.
+  - Client gives you a CORE IDEA; you output a Final Tattoo Specification (finalTattooSpec) ready for the image model.
+  - Think in skin longevity, needle depth, negative space (e.g. overlapping layers need space to breathe so they don't blob).
+  - Be specific: placement, line weight (e.g. 0.5RL), whip-shading, symmetry, blackwork where relevant.
+  - If the idea contradicts our specialties, adapt the spec to fit our signature look (${specialties}).
+  - longevityAlert: mention anatomical/placement risks when relevant.
 </artist_rules>
 ${ROSS_OUTPUT_INSTRUCTIONS}`;
 }
@@ -146,7 +186,7 @@ export async function getRossAdvice(
       model: google("gemini-2.5-flash"),
       schema: ROSS_OUTPUT_SCHEMA,
       system,
-      prompt: `Client's tattoo idea or description:\n\n${userInput.trim()}`,
+      prompt: `Client's core idea (output a Final Tattoo Specification):\n\n${userInput.trim()}`,
     });
 
     return { data: object };

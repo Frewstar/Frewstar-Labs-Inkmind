@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { userId, role } = body;
+    const { userId, role, studioId } = body;
 
     if (!userId || !role) {
       return NextResponse.json({ error: "Missing userId or role" }, { status: 400 });
@@ -33,13 +33,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
 
-    // Update the user's role
+    // studio_id: for STUDIO_ADMIN it's the studio they administer; for USER it's the studio they're assigned to (optional)
+    const studioIdValue =
+      studioId && typeof studioId === "string" && studioId.trim()
+        ? studioId.trim()
+        : null;
+
+    const updates: { role: string; is_admin: boolean; studio_id: string | null } = {
+      role,
+      is_admin: role === "SUPER_ADMIN",
+      studio_id: role === "SUPER_ADMIN" ? null : studioIdValue,
+    };
+
+    // Update the user's role (and studio when STUDIO_ADMIN)
     const { error: updateError } = await supabase
       .from("profiles")
-      .update({
-        role,
-        is_admin: role === "SUPER_ADMIN",
-      })
+      .update(updates)
       .eq("id", userId);
 
     if (updateError) {

@@ -36,7 +36,7 @@ export default async function AdminLayout({
       }}
     >
       <aside
-        className="w-56 min-w-[14rem] shrink-0 overflow-x-hidden border-r border-white/10 bg-[var(--bg-card)]"
+        className="w-56 min-w-[14rem] shrink-0 overflow-x-hidden border-r border-white/10 bg-[var(--bg-card)] backdrop-blur-xl"
         style={{ paddingLeft: "var(--safe-left)" }}
       >
         <div className="sticky top-0 flex min-w-0 flex-col gap-6 py-6 pl-4 pr-4">

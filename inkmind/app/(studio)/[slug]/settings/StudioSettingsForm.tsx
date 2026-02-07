@@ -23,7 +23,7 @@ function SaveButton() {
     <button
       type="submit"
       disabled={pending}
-      className="w-full min-h-[var(--touch-min)] rounded-[var(--radius)] bg-[var(--gold)] px-4 py-3 font-medium text-[var(--bg)] transition hover:bg-[var(--gold)]/90 focus:outline-none focus:ring-2 focus:ring-[var(--gold)] focus:ring-offset-2 focus:ring-offset-[var(--bg)] disabled:opacity-70 disabled:pointer-events-none"
+      className="btn-premium-primary w-full min-h-[var(--touch-min)] px-4 py-3 disabled:opacity-70 disabled:pointer-events-none"
     >
       {pending ? "Saving…" : "Save changes"}
     </button>
@@ -72,8 +72,8 @@ export default function StudioSettingsForm({ slug, initial }: StudioSettingsForm
         </div>
       )}
 
-      <form action={formAction} className="space-y-4" encType="multipart/form-data">
-        <div className="rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] p-5 space-y-4">
+      <form action={formAction} className="space-y-4 animate-spring-in" encType="multipart/form-data">
+        <div className="premium-card p-5 space-y-4">
           <h2 className="text-sm font-semibold text-[var(--white)] border-b border-white/10 pb-2">
             Logo
           </h2>
@@ -96,7 +96,7 @@ export default function StudioSettingsForm({ slug, initial }: StudioSettingsForm
                 name="logo"
                 type="file"
                 accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                className="studio-settings-input text-sm file:mr-2 file:rounded file:border-0 file:bg-[var(--gold)] file:px-3 file:py-1.5 file:text-[var(--bg)] file:text-sm"
+                className="input-premium studio-settings-input text-sm file:mr-2 file:rounded file:border-0 file:bg-[var(--gold)] file:px-3 file:py-1.5 file:text-[var(--bg)] file:text-sm"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) setLogoPreview(URL.createObjectURL(file));
@@ -109,7 +109,7 @@ export default function StudioSettingsForm({ slug, initial }: StudioSettingsForm
           </div>
         </div>
 
-        <div className="rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] p-5 space-y-4">
+        <div className="premium-card p-5 space-y-4">
           <h2 className="text-sm font-semibold text-[var(--white)] border-b border-white/10 pb-2">
             Contact & social
           </h2>
@@ -123,7 +123,7 @@ export default function StudioSettingsForm({ slug, initial }: StudioSettingsForm
               type="url"
               placeholder="https://instagram.com/..."
               defaultValue={initial.instagram_url ?? ""}
-              className="studio-settings-input"
+              className="input-premium studio-settings-input"
             />
           </div>
           <div>
@@ -136,7 +136,7 @@ export default function StudioSettingsForm({ slug, initial }: StudioSettingsForm
               type="url"
               placeholder="https://facebook.com/..."
               defaultValue={initial.facebook_url ?? ""}
-              className="studio-settings-input"
+              className="input-premium studio-settings-input"
             />
           </div>
           <div>
@@ -149,7 +149,7 @@ export default function StudioSettingsForm({ slug, initial }: StudioSettingsForm
               type="email"
               placeholder="studio@example.com"
               defaultValue={initial.contact_email ?? ""}
-              className="studio-settings-input"
+              className="input-premium studio-settings-input"
             />
           </div>
           <div>
@@ -175,7 +175,7 @@ export default function StudioSettingsForm({ slug, initial }: StudioSettingsForm
               rows={2}
               placeholder="123 Main St, City, State"
               defaultValue={initial.address ?? ""}
-              className="studio-settings-input min-h-[60px] resize-y"
+              className="input-premium textarea-premium studio-settings-input min-h-[60px] resize-y"
             />
           </div>
         </div>

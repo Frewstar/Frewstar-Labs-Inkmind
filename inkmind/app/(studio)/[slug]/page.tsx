@@ -49,7 +49,7 @@ export default async function StudioAdminPage({ params }: Props) {
   const [designsResult, distinctProfilesResult, storage] = await Promise.all([
     supabase
       .from("designs")
-      .select("id, prompt, image_url, reference_image_url, final_image_url, status, created_at, profile_id")
+      .select("id, prompt, image_url, reference_image_url, final_image_url, status, created_at, profile_id, submitted_at, ross_reasoning")
       .eq("studio_id", studio.id)
       .order("created_at", { ascending: false }),
     supabase
@@ -85,6 +85,8 @@ export default async function StudioAdminPage({ params }: Props) {
     status: d.status,
     createdAt: new Date(d.created_at).toISOString(),
     userEmail: null,
+    submittedAt: d.submitted_at ? new Date(d.submitted_at).toISOString() : null,
+    rossReasoning: d.ross_reasoning ?? null,
   }));
 
   const userList = studioUsers.map((p) => ({

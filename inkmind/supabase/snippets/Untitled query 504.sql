@@ -1,0 +1,1 @@
+SELECT id, prompt FROM public.designs LIMIT 5;

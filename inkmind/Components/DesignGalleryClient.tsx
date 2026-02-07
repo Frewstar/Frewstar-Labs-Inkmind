@@ -1,14 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useMemo, useCallback } from "react";
 import DesignGalleryCard from "./DesignGalleryCard";
 import type { DesignGalleryItem } from "./DesignGalleryCard";
+import { toggleFavorite } from "@/app/actions/designs";
 
 export type { DesignGalleryItem };
 
 type DesignGalleryClientProps = {
   designs: DesignGalleryItem[];
+  collections?: { id: string; name: string }[];
   unauthenticated?: boolean;
   noAccount?: boolean;
   dbError?: string;
@@ -18,12 +21,37 @@ const FADE_MS = 300;
 
 export default function DesignGalleryClient({
   designs,
+  collections = [],
   unauthenticated = false,
   noAccount = false,
   dbError,
 }: DesignGalleryClientProps) {
+  const router = useRouter();
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
+
+  const handleToggleFavorite = useCallback(async (designId: string) => {
+    const result = await toggleFavorite(designId);
+    if (result.error) {
+      alert(result.error);
+      return;
+    }
+    router.refresh();
+  }, [router]);
+
+  const handleMoveToCollection = useCallback(async (designId: string, collectionId: string) => {
+    if (!collectionId) return;
+    try {
+      const res = await fetch(`/api/designs/${designId}/favorite`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ collection_id: collectionId }),
+      });
+      if (res.ok) router.refresh();
+    } catch {
+      // ignore
+    }
+  }, [router]);
 
   const favoritesCount = useMemo(
     () => designs.filter((d) => d.isStarred).length,
@@ -48,7 +76,7 @@ export default function DesignGalleryClient({
 
   if (unauthenticated) {
     return (
-      <div className="design-gallery-section rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] p-8 text-center">
+      <div className="design-gallery-section premium-card p-8 text-center animate-spring-in">
         <h3 className="font-[var(--font-head)] text-xl font-semibold text-[var(--white)]">
           My Designs
         </h3>
@@ -64,7 +92,7 @@ export default function DesignGalleryClient({
 
   if (noAccount) {
     return (
-      <div className="design-gallery-section rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)] p-8 text-center">
+      <div className="design-gallery-section premium-card p-8 text-center animate-spring-in">
         <h3 className="font-[var(--font-head)] text-xl font-semibold text-[var(--white)]">
           My Designs
         </h3>
@@ -77,7 +105,7 @@ export default function DesignGalleryClient({
 
   if (dbError) {
     return (
-      <div className="design-gallery-section rounded-[var(--radius-lg)] border border-amber-500/30 bg-[var(--bg-card)] p-8 text-center">
+      <div className="design-gallery-section premium-card border-amber-500/20 p-8 text-center animate-spring-in">
         <h3 className="font-[var(--font-head)] text-xl font-semibold text-[var(--white)]">
           My Designs
         </h3>
@@ -175,7 +203,13 @@ export default function DesignGalleryClient({
           }}
         >
           {filteredDesigns.map((d) => (
-            <DesignGalleryCard key={d.id} design={d} />
+            <DesignGalleryCard
+              key={d.id}
+              design={d}
+              collections={collections}
+              onToggleFavorite={handleToggleFavorite}
+              onMoveToCollection={handleMoveToCollection}
+            />
           ))}
         </div>
       )}

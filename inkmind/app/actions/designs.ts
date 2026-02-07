@@ -52,10 +52,15 @@ export async function deleteMyDesign(designId: string): Promise<{ error?: string
     }
 
     for (const { bucket, path } of toRemove) {
-      await supabase.storage.from(bucket).remove([path]);
+      const { error } = await supabase.storage.from(bucket).remove([path]);
+      if (error) console.warn("[InkMind] deleteMyDesign: storage remove failed (design will still be removed):", error.message);
     }
 
-    await supabase.from("designs").delete().eq("id", designId);
+    const { error: deleteError } = await supabase.from("designs").delete().eq("id", designId);
+    if (deleteError) {
+      console.error("[InkMind] deleteMyDesign: designs delete failed:", deleteError);
+      return { error: deleteError.message ?? "Delete failed" };
+    }
 
     revalidatePath("/");
     return {};

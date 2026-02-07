@@ -39,18 +39,19 @@ export default async function AdminPage() {
 
   return (
     <>
-      <h1 className="font-[var(--font-head)] text-2xl font-semibold text-[var(--white)]">
+      <h1 className="font-[var(--font-head)] text-2xl font-semibold text-[var(--white)] animate-spring-in">
         Studio Dashboard
       </h1>
-      <p className="mt-2 text-[var(--grey)]">
+      <p className="mt-2 text-[var(--grey)] animate-spring-in">
         Designs for your studio. Mark deposit received to unlock high-res download for the client.
       </p>
 
-      <section className="mt-8">
+      <section className="mt-8 animate-spring-in">
         <AdminMaintenance />
       </section>
 
-      <div className="mt-8 overflow-x-auto rounded-[var(--radius-lg)] border border-white/10 bg-[var(--bg-card)]">
+      <div className="mt-8 premium-card p-0 overflow-visible">
+        <div className="overflow-x-auto">
         {list.length === 0 ? (
           <div className="p-8 text-center text-[var(--grey)]">
             No designs yet. When clients save designs from your studio, they will appear here.
@@ -89,6 +90,7 @@ export default async function AdminPage() {
             </tbody>
           </table>
         )}
+        </div>
       </div>
     </>
   );

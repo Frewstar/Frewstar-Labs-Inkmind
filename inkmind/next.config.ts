@@ -15,6 +15,7 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "replicate.delivery", port: "", pathname: "/**" },
       { protocol: "https", hostname: "*.supabase.co", port: "", pathname: "/storage/**" },
       { protocol: "http", hostname: "127.0.0.1", port: "54321", pathname: "/storage/**" },
+      { protocol: "http", hostname: "localhost", port: "54321", pathname: "/storage/**" },
     ],
   },
 };
