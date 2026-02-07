@@ -62,6 +62,8 @@ export default function DesignGalleryCard({
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shareTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+
+
   useEffect(() => {
     setStarred(design.isStarred ?? false);
   }, [design.isStarred]);
@@ -151,7 +153,7 @@ export default function DesignGalleryCard({
 
   return (
     <div className="design-gallery-card premium-card overflow-hidden hover-scale press-scale">
-      <div className="aspect-square relative bg-[var(--bg)]">
+      <div className="relative bg-[var(--bg)]" style={{ width: '100%', paddingTop: '100%' }}>
         {showReference && design.referenceImageUrl && (
           <div
             className="absolute inset-0 z-10 flex items-stretch gap-1 bg-[var(--bg)]/95 p-1"
@@ -199,13 +201,13 @@ export default function DesignGalleryCard({
             </button>
           </div>
         )}
-        <div className="tattoo-watermark-wrap absolute inset-0 flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center justify-center">
           {design.imageUrl && !imageError ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={design.imageUrl}
               alt={design.prompt.slice(0, 60)}
-              className="absolute inset-0 w-full h-full object-contain"
+              className="w-full h-full object-contain"
               onError={() => setImageError(true)}
             />
           ) : (

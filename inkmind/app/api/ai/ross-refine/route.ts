@@ -85,7 +85,7 @@ export async function POST(req: Request) {
         ],
       });
 
-      return NextResponse.json({ refinedPrompt: text?.trim() ?? prompt || "Tattoo specification" });
+      return NextResponse.json({ refinedPrompt: (text?.trim() ?? prompt) || "Tattoo specification" });
     }
 
     const { text } = await generateText({

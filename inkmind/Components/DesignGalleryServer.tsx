@@ -44,11 +44,26 @@ export default async function DesignGalleryServer() {
     );
   }
 
-  // 4. Map the data to the format expected by your Client Component
-  // Use same-origin image proxy so gallery images load reliably (no blank/cors)
+  // 4. Map to client format. Use direct Supabase Storage public URLs (no API proxy).
   const designs = (rows || []).map((d) => {
-    const hasImage = !!(d.image_url?.trim());
-    const imageUrl = hasImage ? `/api/designs/${d.id}/image` : "";
+    const raw = (d.image_url ?? "")
+      .replace(/\r\n?|\n/g, "")
+      .trim()
+      .replace(/\]+$/, "")
+      .trim();
+    const hasImage = !!raw && !raw.startsWith("blob:");
+    let imageUrl = "";
+    if (hasImage) {
+      try {
+        const resolved = resolveStorageUrl(supabase, raw) ?? "";
+        // Only use if it's a full URL (storage or http) — avoid passing bare filenames like "image.png"
+        if (resolved.startsWith("http") || resolved.includes("/storage/")) {
+          imageUrl = resolved;
+        }
+      } catch {
+        imageUrl = "";
+      }
+    }
     let referenceImageUrl: string | null = null;
     try {
       referenceImageUrl = resolveStorageUrl(supabase, d.reference_image_url) ?? d.reference_image_url?.trim() ?? null;
@@ -56,16 +71,16 @@ export default async function DesignGalleryServer() {
       referenceImageUrl = d.reference_image_url?.trim() ?? null;
     }
     return {
-    id: d.id,
-    prompt: d.prompt ?? "",
-    imageUrl,
-    referenceImageUrl,
-    status: d.status,
-    isStarred: d.is_starred ?? false,
-    collectionId: d.collection_id ?? null,
-    createdAt: new Date(d.created_at).toISOString(),
-    isPaid: false, // Defaulting for demo
-  };
+      id: d.id,
+      prompt: d.prompt ?? "",
+      imageUrl,
+      referenceImageUrl,
+      status: d.status,
+      isStarred: d.is_starred ?? false,
+      collectionId: d.collection_id ?? null,
+      createdAt: new Date(d.created_at).toISOString(),
+      isPaid: false,
+    };
   });
 
   const { data: collectionsRows } = await supabase

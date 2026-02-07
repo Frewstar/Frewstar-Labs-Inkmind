@@ -76,18 +76,38 @@ export default async function StudioAdminPage({ params }: Props) {
   const storageEstimateBytes = storage.totalBytes;
   const storagePercent = Math.min(100, (storageEstimateBytes / STORAGE_LIMIT_BYTES) * 100);
 
-  const designItems = designs.map((d) => ({
-    id: d.id,
-    prompt: d.prompt ?? "",
-    imageUrl: resolveStorageUrl(supabase, d.image_url) ?? null,
-    referenceImageUrl: resolveStorageUrl(supabase, d.reference_image_url) ?? null,
-    finalImageUrl: resolveStorageUrl(supabase, d.final_image_url) ?? null,
-    status: d.status,
-    createdAt: new Date(d.created_at).toISOString(),
-    userEmail: null,
-    submittedAt: d.submitted_at ? new Date(d.submitted_at).toISOString() : null,
-    rossReasoning: d.ross_reasoning ?? null,
-  }));
+  const designItems = designs.map((d) => {
+    const raw = (d.image_url ?? "")
+      .replace(/\r\n?|\n/g, "")
+      .trim()
+      .replace(/\]+$/, "")
+      .trim();
+    const hasImage = !!raw && !raw.startsWith("blob:");
+    let imageUrl: string | null = null;
+    if (hasImage) {
+      try {
+        const resolved = resolveStorageUrl(supabase, raw) ?? "";
+        // Only use if it's a full URL (storage or http) — avoid passing bare filenames
+        if (resolved.startsWith("http") || resolved.includes("/storage/")) {
+          imageUrl = resolved;
+        }
+      } catch {
+        imageUrl = null;
+      }
+    }
+    return {
+      id: d.id,
+      prompt: d.prompt ?? "",
+      imageUrl,
+      referenceImageUrl: resolveStorageUrl(supabase, d.reference_image_url) ?? null,
+      finalImageUrl: resolveStorageUrl(supabase, d.final_image_url) ?? null,
+      status: d.status,
+      createdAt: new Date(d.created_at).toISOString(),
+      userEmail: null,
+      submittedAt: d.submitted_at ? new Date(d.submitted_at).toISOString() : null,
+      rossReasoning: d.ross_reasoning ?? null,
+    };
+  });
 
   const userList = studioUsers.map((p) => ({
     id: p.id,

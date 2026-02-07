@@ -19,9 +19,28 @@ export function parseSupabaseStorageUrl(
 }
 
 /**
+ * Rewrite a Supabase storage URL to use the current env base (NEXT_PUBLIC_SUPABASE_URL).
+ * When moving from Cloud to local Docker (or vice versa), the DB may still have the old domain.
+ * This ensures we always redirect/load from the same Supabase instance the app is configured for.
+ */
+export function normalizeStorageUrlToCurrentBase(url: string): string {
+  const parsed = parseSupabaseStorageUrl(url);
+  if (!parsed) return url;
+  const base = typeof process !== "undefined" && process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  if (!base) return url;
+  try {
+    const pathname = new URL(url).pathname;
+    const normalized = base.endsWith("/") ? `${base.slice(0, -1)}${pathname}` : `${base}${pathname}`;
+    return normalized;
+  } catch {
+    return url;
+  }
+}
+
+/**
  * Resolve a design image URL using Supabase's getPublicUrl helper.
- * - If the URL is already a full Supabase storage URL (http/https), return as-is so the image loads
- *   without being altered (avoids blank images from re-building the URL).
+ * - If the URL is already a full Supabase storage URL: normalize it to the current env base
+ *   (so local dev uses http://127.0.0.1:54321 even when DB has cloud URLs).
  * - If the URL is path-only (e.g. "generated-designs/userId/file.png"), build full URL with current supabase.
  */
 export function resolveStorageUrl(
@@ -32,8 +51,7 @@ export function resolveStorageUrl(
   if (!raw) return null;
   const parsed = parseSupabaseStorageUrl(raw);
   if (parsed) {
-    // Already a full storage URL — return as-is so we don't risk breaking it
-    return raw;
+    return normalizeStorageUrlToCurrentBase(raw);
   }
   // Path-only stored in DB? e.g. "generated-designs/abc/file.png"
   const pathMatch = raw.match(/^([^/]+)\/(.+)$/);
